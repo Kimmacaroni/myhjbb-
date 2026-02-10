@@ -41,7 +41,7 @@ def send_discord():
             "title": "🏢 명예회장님의 오늘의 식단 브리핑",
             "description": f"**날짜: {datetime.now().strftime('%Y년 %m월 %d일')}**\n\n{menu_data}",
             "color": 15158332,
-            "footer": {"text": "오늘도 안전 운행하십시오. 대원여객 파이팅!"}
+            "footer": {"text": "사우가족여러분의 식사는 나 허명이가 책입집니다!"}
         }]
     }
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
