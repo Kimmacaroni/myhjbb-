@@ -13,18 +13,20 @@ def get_buspia_menu():
         response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # 식단표가 들어있는 영역 찾기
         content = soup.find('div', class_='content') or soup.find('table')
         
         if content:
-            # 모든 텍스트를 가져온 뒤, 줄바꿈(\n) 단위로 쪼갭니다.
             lines = content.get_text().split('\n')
-            
-            # 각 줄에서 앞뒤 공백을 없애고(strip), 내용이 있는 줄만 골라냅니다.
             cleaned_lines = [line.strip() for line in lines if line.strip()]
             
-            # 골라낸 줄들을 다시 한 줄씩 줄바꿈으로 합칩니다.
-            return "\n".join(cleaned_lines)
+            final_lines = []
+            for line in cleaned_lines:
+                # '중식'이나 '석식' 단어가 포함된 줄 앞에 구분선 추가
+                if "중식" in line or "석식" in line:
+                    final_lines.append("─" * 20) # 구분선 삽입
+                final_lines.append(line)
+            
+            return "\n".join(final_lines)
         
         return "식단표 내용을 읽어올 수 없습니다."
     except Exception as e:
