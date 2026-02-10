@@ -13,16 +13,26 @@ def get_buspia_menu():
         response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # 버스피아 식단표 영역 추출
+        # 식단표가 들어있는 영역 찾기
         content = soup.find('div', class_='content') or soup.find('table')
+        
         if content:
-            return content.get_text(separator="\n").strip()[:1000]
-        return "식단표 내용을 읽어올 수 없습니다. (사이트 로그인 필요 여부 확인 필요)"
+            # 모든 텍스트를 가져온 뒤, 줄바꿈(\n) 단위로 쪼갭니다.
+            lines = content.get_text().split('\n')
+            
+            # 각 줄에서 앞뒤 공백을 없애고(strip), 내용이 있는 줄만 골라냅니다.
+            cleaned_lines = [line.strip() for line in lines if line.strip()]
+            
+            # 골라낸 줄들을 다시 한 줄씩 줄바꿈으로 합칩니다.
+            return "\n".join(cleaned_lines)
+        
+        return "식단표 내용을 읽어올 수 없습니다."
     except Exception as e:
         return f"❌ 오류 발생: {str(e)}"
 
 def send_discord():
     menu_data = get_buspia_menu()
+    
     payload = {
         "username": "명예회장봇",
         "embeds": [{
