@@ -1,0 +1,22 @@
+name: Daily Foodpia Bot
+
+on:
+  schedule:
+    # 한국 시간(KST) 오전 6시는 UTC 기준 전날 21:00입니다.
+    - cron: '0 21 * * *'
+  workflow_dispatch: # 수동 실행 버튼을 만듭니다.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4
+      - name: Run Bot
+        run: python food_bot.py
