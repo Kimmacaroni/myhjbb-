@@ -62,7 +62,7 @@ def make_embed(menu: str) -> discord.Embed:
         ),
         colour=15158332,
     )
-    embed.set_footer(text="오늘도 안전 운행하십시오. 대원여객 파이팅!")
+    embed.set_footer(text="오늘도 안전운전!")
     return embed
 
 
