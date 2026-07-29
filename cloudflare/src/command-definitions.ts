@@ -1,37 +1,14 @@
-#!/usr/bin/env node
 /**
- * 슬래시 명령어를 디스코드에 등록하는 스크립트. Worker와 별개로, 배포 전후에
- * 한 번씩 로컬에서 실행합니다 (Worker 안에서는 실행하지 않습니다).
- *
- * 사용법:
- *   DISCORD_TOKEN=... DISCORD_APPLICATION_ID=... node scripts/register-commands.mjs
- *
- *   GUILD_ID=... 를 함께 주면 그 서버에만 등록되어 반영이 즉시 됩니다 (테스트용).
- *   GUILD_ID 없이 실행하면 전역 등록되어 봇이 들어가 있는 모든 서버에
- *   적용되지만, 디스코드가 반영하는 데 최대 1시간 걸릴 수 있습니다.
- *
- * 로컬에서 discord.com 으로 나가는 네트워크가 막혀 있다면(예: 제한된
- * CI/샌드박스), 대신 배포된 Worker의 GET /setup/register-commands?token=...
- * 엔드포인트를 브라우저로 열어 등록할 수 있습니다 (src/index.ts 참고).
- *
- * ⚠️ 아래 명령어 목록은 src/command-definitions.ts 와 내용이 같아야 합니다.
- *    한쪽만 고치면 Worker 라우트와 이 스크립트의 등록 결과가 달라집니다.
+ * 슬래시 명령어 정의. `scripts/register-commands.mjs`(로컬 실행용)와
+ * `src/index.ts`의 `/setup/register-commands` 라우트(Worker 자체 실행용)가
+ * 같은 정의를 씁니다.
  */
 
-const TOKEN = process.env.DISCORD_TOKEN;
-const APPLICATION_ID = process.env.DISCORD_APPLICATION_ID;
-const GUILD_ID = process.env.GUILD_ID;
-
-if (!TOKEN || !APPLICATION_ID) {
-  console.error("DISCORD_TOKEN, DISCORD_APPLICATION_ID 환경변수가 필요합니다.");
-  process.exit(1);
-}
-
-const OPTION_TYPE = { STRING: 3, INTEGER: 4, USER: 6, CHANNEL: 7 };
+const OPTION_TYPE = { STRING: 3, INTEGER: 4, USER: 6, CHANNEL: 7 } as const;
 const PERMISSIONS = { MANAGE_GUILD: String(1 << 5), MANAGE_ROLES: String(1 << 28) };
 const GUILD_TEXT_CHANNEL = 0;
 
-const commands = [
+export const COMMAND_DEFINITIONS = [
   {
     name: "경험치",
     description: "내 경험치와 레벨을 확인합니다.",
@@ -93,8 +70,8 @@ const commands = [
   {
     name: "칭호삭제",
     description: "칭호와 해당 역할을 함께 삭제합니다.",
-    default_member_permissions: PERMISSIONS.MANAGE_ROLES,
     options: [{ name: "이름", description: "삭제할 칭호 이름", type: OPTION_TYPE.STRING, required: true }],
+    default_member_permissions: PERMISSIONS.MANAGE_ROLES,
   },
   {
     name: "칭호목록",
@@ -133,22 +110,3 @@ const commands = [
     description: "현재 식단 자동 전송 설정을 확인합니다.",
   },
 ];
-
-const path = GUILD_ID
-  ? `/applications/${APPLICATION_ID}/guilds/${GUILD_ID}/commands`
-  : `/applications/${APPLICATION_ID}/commands`;
-
-const res = await fetch(`https://discord.com/api/v10${path}`, {
-  method: "PUT",
-  headers: { Authorization: `Bot ${TOKEN}`, "Content-Type": "application/json" },
-  body: JSON.stringify(commands),
-});
-
-if (!res.ok) {
-  console.error(`등록 실패 (HTTP ${res.status}):`, await res.text());
-  process.exit(1);
-}
-
-const registered = await res.json();
-console.log(`✅ 명령어 ${registered.length}개 등록 완료 (${GUILD_ID ? `서버 ${GUILD_ID}에 즉시 반영` : "전역 등록, 최대 1시간 소요"})`);
-for (const c of registered) console.log(`   /${c.name}`);

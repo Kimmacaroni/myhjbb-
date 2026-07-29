@@ -5,6 +5,8 @@ export interface Env {
   DISCORD_TOKEN: string;
   DISCORD_PUBLIC_KEY: string;
   DISCORD_APPLICATION_ID: string;
+  /** /setup/register-commands 엔드포인트를 보호하는 임의의 비밀값. (선택) */
+  SETUP_TOKEN?: string;
 }
 
 export interface DiscordUser {

@@ -188,6 +188,62 @@ async function testHandlerErrorDoesNotCrash() {
   console.log("  핸들러 내부 예외 → 크래시 없이 안내 메시지 OK");
 }
 
+async function testRegisterCommandsRequiresToken() {
+  const { publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex);
+  env.SETUP_TOKEN = "correct-token";
+  const { ctx } = fakeCtx();
+
+  globalThis.fetch = async () => {
+    throw new Error("토큰이 틀리면 디스코드 API를 호출하면 안 됩니다");
+  };
+
+  const noToken = await handleRequest(
+    new Request("https://example.com/setup/register-commands"),
+    env,
+    ctx,
+  );
+  assert.equal(noToken.status, 403);
+
+  const wrongToken = await handleRequest(
+    new Request("https://example.com/setup/register-commands?token=nope"),
+    env,
+    ctx,
+  );
+  assert.equal(wrongToken.status, 403);
+
+  console.log("  /setup/register-commands: 토큰 없음/오답 → 403 + API 미호출 OK");
+}
+
+async function testRegisterCommandsSucceedsWithCorrectToken() {
+  const { publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex);
+  env.SETUP_TOKEN = "correct-token";
+  const { ctx } = fakeCtx();
+
+  let calledPath;
+  globalThis.fetch = async (url, init) => {
+    calledPath = new URL(url.toString()).pathname;
+    assert.equal(init.method, "PUT");
+    const body = JSON.parse(init.body);
+    return new Response(JSON.stringify(body.map((c) => ({ name: c.name }))), { status: 200 });
+  };
+
+  const res = await handleRequest(
+    new Request("https://example.com/setup/register-commands?token=correct-token"),
+    env,
+    ctx,
+  );
+  assert.equal(res.status, 200);
+  const out = await res.json();
+  assert.equal(out.commands.length, 13);
+  assert.ok(calledPath.endsWith("/applications/app/commands"));
+
+  console.log("  /setup/register-commands: 정답 토큰 → 13개 명령어 등록 요청 OK");
+}
+
+await testRegisterCommandsRequiresToken();
+await testRegisterCommandsSucceedsWithCorrectToken();
 await testRejectsNonPost();
 await testRejectsInvalidSignature();
 await testRejectsTamperedBody();

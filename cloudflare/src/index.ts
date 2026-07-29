@@ -6,8 +6,9 @@
  *          라우팅합니다.
  * scheduled(): wrangler.toml의 cron 설정대로 매일 실행되는 식단 자동 전송.
  */
-import { verifySignature } from "./discord";
+import { verifySignature, rest } from "./discord";
 import { sendDailyMenu } from "./scheduled";
+import { COMMAND_DEFINITIONS } from "./command-definitions";
 import type { Env, Interaction, InteractionResponse } from "./types";
 
 import * as leveling from "./commands/leveling";
@@ -37,8 +38,42 @@ export function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
 }
 
+/**
+ * 슬래시 명령어를 디스코드에 등록합니다. 로컬에서 `scripts/register-commands.mjs`
+ * 를 돌릴 네트워크 접근이 없는 환경(예: 제한된 CI/새드박스)에서 배포된 Worker가
+ * 대신 등록하도록 만든 엔드포인트입니다. Worker는 항상 디스코드 API에 나갈 수
+ * 있으므로 브라우저의 CORS/CSP 제약도 받지 않습니다.
+ *
+ * `SETUP_TOKEN` secret을 설정한 뒤 브라우저로
+ * `/setup/register-commands?token=그값` 을 열면 됩니다. 한 번 등록한 뒤에는
+ * `SETUP_TOKEN` secret을 지워서 이 엔드포인트를 다시 잠가도 됩니다.
+ */
+async function handleRegisterCommands(request: Request, env: Env): Promise<Response> {
+  const token = new URL(request.url).searchParams.get("token");
+  if (!env.SETUP_TOKEN || token !== env.SETUP_TOKEN) {
+    return new Response("권한이 없습니다.", { status: 403 });
+  }
+
+  const res = await rest(
+    env.DISCORD_TOKEN,
+    "PUT",
+    `/applications/${env.DISCORD_APPLICATION_ID}/commands`,
+    COMMAND_DEFINITIONS,
+  );
+  const registered = await res.json<{ name: string }[]>();
+  return json({
+    message: `${registered.length}개 명령어 등록 완료 (전역 등록 — 반영까지 최대 1시간)`,
+    commands: registered.map((c) => c.name),
+  });
+}
+
 /** 요청을 받아 처리하는 본체. fetch()에서 분리해 둔 이유는 Node에서 직접 테스트하기 위해서입니다. */
 export async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  if (request.method === "GET" && url.pathname === "/setup/register-commands") {
+    return handleRegisterCommands(request, env);
+  }
+
   if (request.method !== "POST") {
     return new Response("이 엔드포인트는 디스코드 Interactions 전용입니다.", { status: 405 });
   }
