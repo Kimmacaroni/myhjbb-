@@ -32,8 +32,17 @@ export function formatMenuText(rawText: string): string {
     throw new Error("식단표가 비어 있습니다.");
   }
 
+  // 사이트가 오늘과 내일 식단을 구분 없이 한 번에 내려주는 경우가 있어서,
+  // 하루 시작을 알리는 "조식열량"이 두 번째로 나오는 지점부터는 잘라내고
+  // 첫 번째 날(오늘) 것만 남깁니다.
+  const breakfastStarts = lines.reduce<number[]>((acc, line, i) => {
+    if (/^조식\s*열량/.test(line)) acc.push(i);
+    return acc;
+  }, []);
+  const todayLines = breakfastStarts.length >= 2 ? lines.slice(0, breakfastStarts[1]) : lines;
+
   const final: string[] = [];
-  for (const line of lines) {
+  for (const line of todayLines) {
     if (line.includes("중식") || line.includes("석식")) {
       final.push("─".repeat(20));
     }

@@ -5,6 +5,7 @@
 막기 위한 것이므로, 식단 형식을 바꿀 때는 이 파일만 수정하면 됩니다.
 """
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -37,6 +38,13 @@ def fetch_menu() -> str:
     lines = [line.strip() for line in content.get_text().split("\n") if line.strip()]
     if not lines:
         raise ValueError("식단표가 비어 있습니다.")
+
+    # 사이트가 오늘과 내일 식단을 구분 없이 한 번에 내려주는 경우가 있어서,
+    # 하루 시작을 알리는 "조식열량"이 두 번째로 나오는 지점부터는 잘라내고
+    # 첫 번째 날(오늘) 것만 남깁니다.
+    breakfast_starts = [i for i, line in enumerate(lines) if re.match(r"^조식\s*열량", line)]
+    if len(breakfast_starts) >= 2:
+        lines = lines[: breakfast_starts[1]]
 
     final = []
     for line in lines:
