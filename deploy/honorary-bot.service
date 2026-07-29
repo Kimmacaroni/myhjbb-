@@ -1,0 +1,20 @@
+[Unit]
+Description=Honorary Chairman Bot (Discord)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# install.sh가 이 값들을 실제 경로/사용자로 바꿔치기합니다.
+User=__USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__APP_DIR__/.env
+ExecStart=__APP_DIR__/.venv/bin/python bot.py
+
+# 봇이 죽으면(네트워크 끊김, 미처리 예외 등) 자동으로 다시 켭니다.
+Restart=on-failure
+RestartSec=10
+
+# 서버가 재부팅돼도 자동으로 켜지도록 [Install] 섹션이 필요합니다.
+[Install]
+WantedBy=multi-user.target

@@ -134,12 +134,74 @@ python bot.py
 있어야 합니다. GitHub Actions는 정해진 시각에 잠깐 실행되고 컨테이너가 삭제되는
 구조라 이 기능에는 쓸 수 없습니다. 아래 중 하나를 사용하세요.
 
+- **Oracle Cloud 무료 티어** (권장 — 아래에 전용 가이드가 있습니다)
 - 라즈베리파이 / 집 PC (`systemd`, `pm2` 등으로 상시 실행)
-- Oracle Cloud 무료 티어, AWS Lightsail 등 VPS
-- Railway, Fly.io 같은 PaaS
+- AWS Lightsail 등 다른 VPS, Railway·Fly.io 같은 PaaS
 
 어디에 올리든 **`DB_PATH` 가 재시작 후에도 남는 영구 디스크**여야 합니다.
 컨테이너 임시 저장소에 두면 재배포할 때마다 경험치가 전부 사라집니다.
+
+---
+
+## ☁️ Oracle Cloud 무료 티어로 24시간 호스팅하기
+
+카드 등록은 필요하지만 아래 사양은 **Always Free** 라 계속 무료입니다.
+`deploy/` 폴더에 설치를 자동화하는 스크립트를 준비해 뒀습니다.
+
+### 1) 계정 생성 & VM 인스턴스 만들기
+1. https://www.oracle.com/cloud/free/ 에서 가입합니다 (신용카드 인증 필요, 과금 없음).
+2. 콘솔 → **Compute** → **Instances** → **Create instance**
+3. **Image**: `Ubuntu 22.04` 선택
+4. **Shape**: `VM.Standard.E2.1.Micro` (Always Free, AMD, 1GB RAM) 을 고르세요.
+   > `A1.Flex`(ARM, 더 넉넉한 사양)도 Always Free 지만 리전에 따라 재고가
+   > 없다는 오류(Out of capacity)가 자주 뜹니다. 이 봇은 가볍기 때문에
+   > `E2.1.Micro` 로 충분하며 항상 바로 생성됩니다.
+5. **Add SSH keys** 에서 키 페어를 만들고 **개인키(.key 파일)를 반드시 저장**하세요.
+   (다시 다운로드할 수 없습니다.)
+6. **Create** 클릭 → 몇 분 뒤 인스턴스가 켜지면 **Public IP** 를 확인합니다.
+
+> 이 봇은 디스코드로 **나가는** 연결만 만들고 외부에서 들어오는 요청을 받지
+> 않으므로, 방화벽/보안 목록에서 포트를 따로 열 필요가 없습니다.
+
+### 2) 접속 및 설치
+로컬 컴퓨터에서:
+```bash
+chmod 600 다운로드한-키.key
+ssh -i 다운로드한-키.key ubuntu@<Public IP>
+```
+
+VM 안에서:
+```bash
+git clone <이 저장소 주소> honorary-bot
+cd honorary-bot
+bash deploy/install.sh
+```
+
+`.env` 가 없다는 안내가 뜨면 그대로 안내를 따라 채우세요:
+```bash
+nano .env        # DISCORD_TOKEN, MENU_CHANNEL_ID 등 채우기
+bash deploy/install.sh   # 다시 실행하면 서비스 등록까지 완료됩니다
+```
+
+### 3) 확인
+```bash
+sudo systemctl status honorary-bot   # active (running) 이면 정상
+journalctl -u honorary-bot -f        # 실시간 로그 (Ctrl+C로 빠져나오기)
+```
+로그에 `슬래시 명령어 13개 동기화 → /경험치, /랭킹, ...` 가 보이면 성공입니다.
+디스코드에서 `/`를 쳐서 명령어가 뜨는지 확인하세요.
+
+### 이후 관리
+| 상황 | 명령어 |
+|---|---|
+| 재시작 | `sudo systemctl restart honorary-bot` |
+| 끄기 | `sudo systemctl stop honorary-bot` |
+| 부팅 시 자동시작 여부 확인 | `sudo systemctl is-enabled honorary-bot` |
+| 코드 갱신 | `git pull && ./.venv/bin/pip install -r requirements.txt && sudo systemctl restart honorary-bot` |
+| 설정값(.env)만 변경 | `nano .env` 후 `sudo systemctl restart honorary-bot` |
+
+`Restart=on-failure` 로 등록되어 있어 봇이 죽어도(네트워크 끊김, 예외 등)
+10초 뒤 자동으로 다시 켜지고, VM이 재부팅돼도 자동으로 시작됩니다.
 
 ---
 
