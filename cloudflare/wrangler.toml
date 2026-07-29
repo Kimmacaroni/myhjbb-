@@ -9,7 +9,7 @@ crons = ["0 21 * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "honorary-bot"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "eeecdf40-793e-4c55-ac0a-695552fa4bc9"
 
 # 아래 값들은 파일에 적지 않고 secret 으로 등록합니다. (배포 가이드 참고)
 #   wrangler secret put DISCORD_TOKEN
