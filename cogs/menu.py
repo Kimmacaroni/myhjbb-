@@ -6,46 +6,19 @@
 전송 채널은 `/식단채널설정` 명령어로 디스코드에서 바로 바꿀 수 있고, 설정은
 데이터베이스에 저장되어 재시작 후에도 유지됩니다.
 """
-import asyncio
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import time
 
 import discord
-import requests
-from bs4 import BeautifulSoup
 from discord import app_commands
 from discord.ext import commands, tasks
 
 import config
 import db
+import menu_source
+from menu_source import KST
 
 log = logging.getLogger(__name__)
-
-KST = timezone(timedelta(hours=9))
-
-
-def fetch_menu() -> str:
-    """식단표 페이지를 읽어 텍스트로 정리합니다."""
-    response = requests.get(
-        config.MENU_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=10
-    )
-    response.encoding = "utf-8"
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    content = soup.find("div", class_="content") or soup.find("table")
-    if content is None:
-        raise ValueError("식단표 영역을 찾지 못했습니다.")
-
-    lines = [line.strip() for line in content.get_text().split("\n") if line.strip()]
-    if not lines:
-        raise ValueError("식단표가 비어 있습니다.")
-
-    final = []
-    for line in lines:
-        if any(word in line for word in ("중식", "석식")):
-            final.append("─" * 20)
-        final.append(line)
-    return "\n".join(final)
 
 
 @app_commands.guild_only()
@@ -92,21 +65,6 @@ class Menu(commands.Cog):
             if (channel := self.resolve_channel(guild)) is not None
         ]
 
-    # ── 크롤링 & 임베드 ───────────────────────────────
-
-    async def build_embed(self) -> discord.Embed:
-        # requests는 동기 호출이라 이벤트 루프를 막지 않도록 스레드로 넘깁니다.
-        menu = await asyncio.to_thread(fetch_menu)
-        embed = discord.Embed(
-            title="🏢 명예회장님의 오늘의 식단 브리핑",
-            description=(
-                f"**날짜: {datetime.now(KST).strftime('%Y년 %m월 %d일')}**\n\n{menu}"
-            ),
-            colour=15158332,
-        )
-        embed.set_footer(text="오늘도 안전 운행하십시오. 대원여객 파이팅!")
-        return embed
-
     # ── 매일 자동 전송 ────────────────────────────────
 
     @tasks.loop(time=time(hour=6, tzinfo=KST))
@@ -118,7 +76,7 @@ class Menu(commands.Cog):
 
         try:
             # 서버가 여러 곳이어도 크롤링은 한 번만 합니다.
-            embed = await self.build_embed()
+            embed = await menu_source.build_embed()
         except Exception:
             log.exception("식단 크롤링 실패 — 오늘 전송을 건너뜁니다.")
             return
@@ -147,7 +105,7 @@ class Menu(commands.Cog):
     async def menu_now(self, interaction: discord.Interaction):
         await interaction.response.defer()
         try:
-            await interaction.followup.send(embed=await self.build_embed())
+            await interaction.followup.send(embed=await menu_source.build_embed())
         except Exception as exc:
             log.exception("식단 조회 실패")
             await interaction.followup.send(f"❌ 식단을 불러오지 못했습니다: {exc}")

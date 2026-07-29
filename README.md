@@ -65,7 +65,44 @@ KD 사우 가족을 위한 디스코드 봇입니다. 매일 아침 식단표를
 
 ---
 
-## 🚀 실행 방법
+## 🧭 두 가지 실행 방식
+
+| | GitHub Actions (`food_bot.py`) | 상시 실행 (`bot.py`) |
+|---|---|---|
+| 호스팅 | 필요 없음 | 24시간 켜둘 서버 필요 |
+| 🍚 식단 브리핑 | ✅ | ✅ |
+| 📈 경험치 · 레벨 · 칭호 | ❌ | ✅ |
+| 슬래시 명령어 | ❌ | ✅ |
+
+경험치 시스템은 채팅과 통화방을 실시간으로 지켜보고 데이터를 계속 저장해야 합니다.
+Actions는 정해진 시각에 잠깐 실행되고 컨테이너가 삭제되는 구조라 원리상 불가능합니다.
+**호스팅이 준비되기 전까지는 Actions로 식단만 돌리고, 나중에 `bot.py` 로 넘어가면 됩니다.**
+
+---
+
+## ⚡ 방법 A — GitHub Actions로 식단만 돌리기
+
+호스팅 없이 바로 쓸 수 있습니다. 저장소에 **Secret 2개만 등록**하면 끝입니다.
+
+`Settings` → `Secrets and variables` → `Actions` → `New repository secret`
+
+| 이름 | 값 |
+|---|---|
+| `DISCORD_TOKEN` | 봇 토큰 (개발자 포털 → Bot → Reset Token) |
+| `MENU_CHANNEL_ID` | 식단을 올릴 채널 ID (채널 우클릭 → ID 복사) |
+
+등록 후 `Actions` 탭 → `Daily Foodpia Bot` → **Run workflow** 로 바로 확인해 보세요.
+이후 매일 새벽 6시(KST)에 자동 실행됩니다.
+
+> Actions의 cron은 러너가 붐빌 때 수 분~수십 분 늦게 실행될 수 있습니다.
+> 정확한 시각이 중요하면 방법 B를 쓰세요.
+
+크롤링 실패, 토큰 오류, 권한 부족 등은 **Actions 실행을 실패(빨간색)로 표시**합니다.
+조용히 넘어가 며칠 뒤에야 알게 되는 일이 없도록 한 것입니다.
+
+---
+
+## 🚀 방법 B — 전체 기능 실행하기
 
 ### 1. 디스코드 개발자 포털 설정
 1. [Developer Portal](https://discord.com/developers/applications) → 해당 앱 → **Bot**
@@ -139,9 +176,12 @@ cogs/
   titles.py         칭호 CRUD, 역할 자동 생성·삭제·정렬
   menu.py           식단 크롤링 및 매일 6시 전송
 
-food_bot.py         (구버전) GitHub Actions 전용 식단 전송 스크립트
-.github/workflows/main.yml   구버전용 스케줄
+menu_source.py      식단 크롤링·임베드 생성 (아래 두 실행 방식이 공유)
+food_bot.py         GitHub Actions 전용 단발 실행 스크립트
+.github/workflows/main.yml   매일 6시 Actions 스케줄
 ```
+
+식단 형식을 바꾸고 싶으면 `menu_source.py` 한 곳만 고치면 양쪽에 함께 반영됩니다.
 
 `bot.py` 를 상시 실행하면 식단 기능도 함께 처리되므로, 메시지가 두 번 오지 않도록
 **둘 중 하나만 켜세요**:
@@ -160,10 +200,10 @@ food_bot.py         (구버전) GitHub Actions 전용 식단 전송 스크립트
 
 ## 🔐 보안 주의
 
-구버전 `food_bot.py` 에는 봇 토큰이 코드에 그대로 적혀 있고 커밋 이력에도 남아
-있습니다. 저장소가 공개 상태라면 **토큰을 재발급(Reset Token)** 하고, 새 토큰은
-반드시 환경변수나 GitHub Secrets 로만 관리하세요. 새로 추가된 `bot.py` 는
-`DISCORD_TOKEN` 환경변수에서만 토큰을 읽습니다.
+이제 모든 스크립트가 토큰을 환경변수에서만 읽습니다. 다만 **예전 커밋 이력에는
+토큰이 그대로 남아 있습니다.** 저장소가 공개 상태라면 반드시
+**토큰을 재발급(Reset Token)** 하고 새 토큰을 Secret 으로 등록하세요.
+재발급하면 유출된 옛 토큰은 즉시 무효가 됩니다.
 
 ---
 
