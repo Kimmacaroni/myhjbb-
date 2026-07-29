@@ -62,7 +62,9 @@ def make_embed(menu: str) -> discord.Embed:
         ),
         colour=15158332,
     )
-    embed.set_footer(text="오늘도 안전운전!")
+    embed.set_footer(
+        text="KD 운송그룹이 가는 곳에 길이 있습니다.\n길이 있는 곳에 KD 운송그룹이 있습니다."
+    )
     return embed
 
 

@@ -56,7 +56,7 @@ export function makeMenuEmbed(menuText: string, now: Date = new Date()) {
     title: "🏢 명예회장님의 오늘의 식단 브리핑",
     description: `**날짜: ${kstDateString(now)}**\n\n${menuText}`,
     color: 15158332,
-    footer: { text: "오늘도 안전운전!" },
+    footer: { text: "KD 운송그룹이 가는 곳에 길이 있습니다.\n길이 있는 곳에 KD 운송그룹이 있습니다." },
   };
 }
 
