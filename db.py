@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS titles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_titles_level ON titles (guild_id, level);
+
+CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id        INTEGER NOT NULL PRIMARY KEY,
+    menu_channel_id INTEGER
+);
 """
 
 
@@ -189,3 +194,47 @@ def find_title_by_name(guild_id: int, name: str) -> sqlite3.Row | None:
             "SELECT role_id, name, level FROM titles WHERE guild_id = ? AND name = ?",
             (guild_id, name),
         ).fetchone()
+
+
+# ── 서버별 설정 ───────────────────────────────────────
+
+def set_menu_channel(guild_id: int, channel_id: int | None) -> None:
+    """식단을 보낼 채널을 지정합니다. None이면 자동 전송을 끕니다."""
+    with _tx() as conn:
+        conn.execute(
+            """INSERT INTO guild_settings (guild_id, menu_channel_id) VALUES (?, ?)
+               ON CONFLICT (guild_id) DO UPDATE SET menu_channel_id = ?""",
+            (guild_id, channel_id, channel_id),
+        )
+
+
+def get_menu_channel(guild_id: int) -> int | None:
+    with _tx() as conn:
+        row = conn.execute(
+            "SELECT menu_channel_id FROM guild_settings WHERE guild_id = ?",
+            (guild_id,),
+        ).fetchone()
+    return row["menu_channel_id"] if row else None
+
+
+def has_menu_setting(guild_id: int) -> bool:
+    """해당 서버에 식단 채널 설정 기록이 있는지 확인합니다.
+
+    설정을 명시적으로 해제(NULL)한 경우와, 아예 설정한 적이 없어 환경변수
+    기본값을 따라야 하는 경우를 구분하기 위해 필요합니다.
+    """
+    with _tx() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM guild_settings WHERE guild_id = ?", (guild_id,)
+        ).fetchone()
+    return row is not None
+
+
+def all_menu_channels() -> dict[int, int]:
+    """{서버 ID: 채널 ID} — 자동 전송이 켜져 있는 서버만."""
+    with _tx() as conn:
+        rows = conn.execute(
+            "SELECT guild_id, menu_channel_id FROM guild_settings "
+            "WHERE menu_channel_id IS NOT NULL"
+        ).fetchall()
+    return {row["guild_id"]: row["menu_channel_id"] for row in rows}
