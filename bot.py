@@ -34,6 +34,7 @@ class HonoraryBot(commands.Bot):
         intents.voice_states = True
         # 명령어는 전부 슬래시 명령어라 message_content 인텐트는 필요 없습니다.
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
+        self._synced = False
 
     async def setup_hook(self):
         for cog in COGS:
@@ -41,22 +42,51 @@ class HonoraryBot(commands.Bot):
             log.info("%s 로드 완료", cog)
 
         if config.GUILD_ID:
-            # 특정 서버에만 등록하면 명령어가 즉시 반영됩니다.
-            guild = discord.Object(id=config.GUILD_ID)
+            await self._sync_to(discord.Object(id=config.GUILD_ID), str(config.GUILD_ID))
+            self._synced = True
+        # GUILD_ID가 없으면 아직 참여 중인 서버를 알 수 없으므로 on_ready에서 처리합니다.
+
+    async def _sync_to(self, guild: discord.abc.Snowflake, label: str) -> None:
+        """서버 단위로 슬래시 명령어를 등록합니다.
+
+        전역(global) 등록은 디스코드 반영까지 최대 1시간이 걸리고 그동안 일부만
+        보이기 때문에, 참여 중인 서버에 직접 등록해 즉시 반영되게 합니다.
+        """
+        try:
             self.tree.copy_global_to(guild=guild)
             synced = await self.tree.sync(guild=guild)
-        else:
-            # 전역 등록은 디스코드 반영까지 최대 1시간이 걸립니다.
-            synced = await self.tree.sync()
-        log.info("슬래시 명령어 %d개 동기화", len(synced))
+        except discord.Forbidden:
+            log.error(
+                "[%s] 명령어를 등록할 권한이 없습니다. 봇을 'applications.commands' "
+                "스코프를 포함해 다시 초대하세요.", label,
+            )
+            return
+        except discord.HTTPException as exc:
+            log.error("[%s] 명령어 동기화 실패: %s", label, exc)
+            return
+
+        names = ", ".join(f"/{c.name}" for c in synced)
+        log.info("[%s] 슬래시 명령어 %d개 동기화 → %s", label, len(synced), names)
 
     async def on_ready(self):
         log.info("%s 로그인 완료 (서버 %d개)", self.user, len(self.guilds))
+
+        if not self._synced:
+            self._synced = True  # on_ready는 재접속 때마다 다시 불립니다
+            if not self.guilds:
+                log.warning("참여 중인 서버가 없어 명령어를 등록하지 못했습니다.")
+            for guild in self.guilds:
+                await self._sync_to(guild, guild.name)
+
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.watching, name="사우님들의 활동"
             )
         )
+
+    async def on_guild_join(self, guild: discord.Guild):
+        """새로 초대된 서버에도 즉시 명령어를 등록합니다."""
+        await self._sync_to(guild, guild.name)
 
 
 async def main():
