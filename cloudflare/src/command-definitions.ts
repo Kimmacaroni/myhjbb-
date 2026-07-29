@@ -10,6 +10,10 @@ const GUILD_TEXT_CHANNEL = 0;
 
 export const COMMAND_DEFINITIONS = [
   {
+    name: "도움말",
+    description: "사용 가능한 명령어와 설명을 보여줍니다.",
+  },
+  {
     name: "경험치",
     description: "내 경험치와 레벨을 확인합니다.",
     options: [

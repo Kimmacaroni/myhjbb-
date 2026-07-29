@@ -115,6 +115,7 @@ class Menu(commands.Cog):
     )
     @app_commands.describe(채널="식단을 올릴 채널 (생략하면 이 명령어를 쓴 채널)")
     @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.default_permissions(manage_guild=True)
     async def set_channel(
         self,
         interaction: discord.Interaction,
@@ -147,6 +148,7 @@ class Menu(commands.Cog):
         name="식단채널해제", description="식단 자동 전송을 끕니다."
     )
     @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.default_permissions(manage_guild=True)
     async def unset_channel(self, interaction: discord.Interaction):
         db.set_menu_channel(interaction.guild.id, None)
         await interaction.response.send_message(

@@ -219,6 +219,7 @@ class Leveling(commands.Cog):
     @app_commands.command(name="경험치지급", description="지정한 멤버에게 경험치를 지급합니다.")
     @app_commands.describe(유저="지급 대상", 수량="지급할 경험치")
     @app_commands.checks.has_permissions(manage_roles=True)
+    @app_commands.default_permissions(manage_roles=True)
     async def give_xp(
         self,
         interaction: discord.Interaction,
@@ -230,6 +231,7 @@ class Leveling(commands.Cog):
     @app_commands.command(name="경험치차감", description="지정한 멤버의 경험치를 차감합니다.")
     @app_commands.describe(유저="차감 대상", 수량="차감할 경험치")
     @app_commands.checks.has_permissions(manage_roles=True)
+    @app_commands.default_permissions(manage_roles=True)
     async def take_xp(
         self,
         interaction: discord.Interaction,
@@ -241,6 +243,7 @@ class Leveling(commands.Cog):
     @app_commands.command(name="경험치설정", description="멤버의 경험치를 특정 값으로 맞춥니다.")
     @app_commands.describe(유저="대상", 수량="설정할 누적 경험치")
     @app_commands.checks.has_permissions(manage_roles=True)
+    @app_commands.default_permissions(manage_roles=True)
     async def set_xp(
         self,
         interaction: discord.Interaction,

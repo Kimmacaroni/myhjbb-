@@ -168,6 +168,32 @@ async function testMenuCommandDefersAndSchedulesBackground() {
   console.log("  /식단 → 즉시 defer 응답 + 백그라운드에서 후속 처리 OK");
 }
 
+async function testHelpCommandListsEveryoneAndAdminSeparately() {
+  const { privateKey, publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex);
+  const { ctx } = fakeCtx();
+
+  const req = await signedRequest(privateKey, {
+    type: 2,
+    token: "tok",
+    guild_id: "1001",
+    member: { user: { id: "9001", username: "u", bot: false }, roles: [], permissions: "0" },
+    data: { id: "c", name: "도움말", options: [] },
+  });
+  const res = await handleRequest(req, env, ctx);
+  const out = await res.json();
+  const [everyone, admin] = out.data.embeds[0].fields;
+
+  assert.match(everyone.value, /\/경험치 \[유저\]/, "선택 옵션은 대괄호로 표시되어야 함");
+  assert.match(everyone.value, /\/도움말/, "도움말 자신도 목록에 있어야 함");
+  assert.match(admin.value, /\/경험치지급 <유저> <수량>/, "필수 옵션은 꺾쇠로 표시되어야 함");
+  assert.match(admin.value, /역할 관리 권한 필요/);
+  assert.match(admin.value, /서버 관리 권한 필요/);
+  assert.ok(!everyone.value.includes("경험치지급"), "관리자 명령어가 누구나 목록에 섞이면 안 됨");
+
+  console.log("  /도움말: 명령어 정의 기반 자동 생성 + 권한별 분류 OK");
+}
+
 async function testHandlerErrorDoesNotCrash() {
   const { privateKey, publicKeyHex } = await makeKeypair();
   const env = fakeEnv(publicKeyHex);
@@ -236,10 +262,10 @@ async function testRegisterCommandsSucceedsWithCorrectToken() {
   );
   assert.equal(res.status, 200);
   const out = await res.json();
-  assert.equal(out.commands.length, 13);
+  assert.equal(out.commands.length, 14);
   assert.ok(calledPath.endsWith("/applications/app/commands"));
 
-  console.log("  /setup/register-commands: 정답 토큰 → 13개 명령어 등록 요청 OK");
+  console.log("  /setup/register-commands: 정답 토큰 → 14개 명령어 등록 요청 OK");
 }
 
 await testRegisterCommandsRequiresToken();
@@ -251,5 +277,6 @@ await testPingRespondsWithPong();
 await testUnknownCommandRepliesFriendly();
 await testKnownCommandRoutesCorrectly();
 await testMenuCommandDefersAndSchedulesBackground();
+await testHelpCommandListsEveryoneAndAdminSeparately();
 await testHandlerErrorDoesNotCrash();
 console.log("index.ts (라우터) 전부 통과 ✅");

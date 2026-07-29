@@ -14,12 +14,14 @@ import type { Env, Interaction, InteractionResponse } from "./types";
 import * as leveling from "./commands/leveling";
 import * as titles from "./commands/titles";
 import * as menu from "./commands/menu";
+import * as help from "./commands/help";
 
 const InteractionType = { PING: 1, APPLICATION_COMMAND: 2 } as const;
 
 type Handler = (env: Env, interaction: Interaction) => Promise<InteractionResponse>;
 
 const HANDLERS: Record<string, Handler> = {
+  도움말: help.handleHelp,
   경험치: leveling.handleShowXp,
   랭킹: leveling.handleLeaderboard,
   경험치지급: leveling.handleGiveXp,
