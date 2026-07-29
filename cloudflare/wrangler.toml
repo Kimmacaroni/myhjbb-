@@ -1,0 +1,17 @@
+name = "honorary-bot"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# 매일 새벽 6시(KST) = UTC 21시. GitHub Actions 워크플로와 같은 시각입니다.
+[triggers]
+crons = ["0 21 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "honorary-bot"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# 아래 값들은 파일에 적지 않고 secret 으로 등록합니다. (배포 가이드 참고)
+#   wrangler secret put DISCORD_TOKEN
+#   wrangler secret put DISCORD_PUBLIC_KEY
+#   wrangler secret put DISCORD_APPLICATION_ID
