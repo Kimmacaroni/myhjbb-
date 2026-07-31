@@ -41,22 +41,11 @@ class Menu(commands.Cog):
     # ── 전송 대상 ─────────────────────────────────────
 
     def resolve_channel(self, guild: discord.Guild) -> discord.abc.Messageable | None:
-        """해당 서버에서 식단을 보낼 채널을 찾습니다.
-
-        명령어로 지정한 값이 우선이고, 한 번도 설정한 적이 없는 서버에 한해
-        기존 `MENU_CHANNEL_ID` 환경변수를 사용합니다.
-        """
-        if db.has_menu_setting(guild.id):
-            channel_id = db.get_menu_channel(guild.id)
-        elif config.MENU_CHANNEL_ID:
-            channel_id = config.MENU_CHANNEL_ID
-        else:
-            return None
-
+        """해당 서버에서 식단을 보낼 채널을 찾습니다. `/식단채널설정`으로 지정한 채널만 씁니다."""
+        channel_id = db.get_menu_channel(guild.id)
         if channel_id is None:
-            return None  # 명시적으로 해제한 서버
-        channel = guild.get_channel(channel_id)
-        return channel
+            return None
+        return guild.get_channel(channel_id)
 
     def targets(self) -> list[discord.abc.Messageable]:
         return [
@@ -166,7 +155,7 @@ class Menu(commands.Cog):
             status = "⛔ 꺼짐 (봇 전체 설정 `ENABLE_MENU_TASK=0`)"
         elif channel is not None:
             status = f"✅ 켜짐 — {channel.mention}"
-        elif db.has_menu_setting(guild.id) and db.get_menu_channel(guild.id):
+        elif db.get_menu_channel(guild.id):
             # 채널은 지정됐는데 삭제되었거나 봇이 볼 수 없는 경우
             status = "⚠️ 지정된 채널을 찾을 수 없습니다. 다시 설정해 주세요."
         else:

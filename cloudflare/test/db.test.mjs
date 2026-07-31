@@ -51,12 +51,10 @@ async function testCrud() {
 async function testSettings() {
   const d1 = makeFakeD1(schema);
 
-  assert.equal(await db.hasMenuSetting(d1, GUILD), false);
   assert.equal(await db.getMenuChannel(d1, GUILD), null);
   assert.deepEqual(await db.allMenuChannels(d1), []);
 
   await db.setMenuChannel(d1, GUILD, "777");
-  assert.equal(await db.hasMenuSetting(d1, GUILD), true);
   assert.equal(await db.getMenuChannel(d1, GUILD), "777");
   assert.deepEqual(await db.allMenuChannels(d1), [{ guildId: GUILD, channelId: "777" }]);
 
@@ -64,11 +62,10 @@ async function testSettings() {
   assert.equal(await db.getMenuChannel(d1, GUILD), "888");
 
   await db.setMenuChannel(d1, GUILD, null); // 명시적 해제
-  assert.equal(await db.hasMenuSetting(d1, GUILD), true);
   assert.equal(await db.getMenuChannel(d1, GUILD), null);
   assert.deepEqual(await db.allMenuChannels(d1), []);
 
-  console.log("  db.ts: 식단 채널 설정/덮어쓰기/해제/미설정 구분 OK");
+  console.log("  db.ts: 식단 채널 설정/덮어쓰기/해제 OK");
 }
 
 await testCrud();

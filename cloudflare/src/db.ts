@@ -161,14 +161,6 @@ export async function getMenuChannel(db: D1Database, guildId: string): Promise<s
   return row?.menu_channel_id ?? null;
 }
 
-export async function hasMenuSetting(db: D1Database, guildId: string): Promise<boolean> {
-  const row = await db
-    .prepare(`SELECT 1 FROM guild_settings WHERE guild_id = ?`)
-    .bind(guildId)
-    .first();
-  return row !== null;
-}
-
 export async function allMenuChannels(db: D1Database): Promise<{ guildId: string; channelId: string }[]> {
   const { results } = await db
     .prepare(

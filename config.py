@@ -26,6 +26,8 @@ DB_PATH = os.environ.get("DB_PATH", "bot.db")
 
 # ── 식단 브리핑 ───────────────────────────────────────
 ENABLE_MENU_TASK = os.environ.get("ENABLE_MENU_TASK", "1") == "1"
+# GitHub Actions용 food_bot.py 전용 값입니다. 채널은 /식단채널설정 명령어로
+# 지정하므로 bot.py(cogs/menu.py)는 이 값을 읽지 않습니다.
 MENU_CHANNEL_ID = _int_env("MENU_CHANNEL_ID")
 MENU_URL = "https://www.buspia.co.kr/m/intranet/subpage/my/foodtable.php"
 # 식단을 보낼 시각 (KST 기준)

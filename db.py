@@ -217,19 +217,6 @@ def get_menu_channel(guild_id: int) -> int | None:
     return row["menu_channel_id"] if row else None
 
 
-def has_menu_setting(guild_id: int) -> bool:
-    """해당 서버에 식단 채널 설정 기록이 있는지 확인합니다.
-
-    설정을 명시적으로 해제(NULL)한 경우와, 아예 설정한 적이 없어 환경변수
-    기본값을 따라야 하는 경우를 구분하기 위해 필요합니다.
-    """
-    with _tx() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM guild_settings WHERE guild_id = ?", (guild_id,)
-        ).fetchone()
-    return row is not None
-
-
 def all_menu_channels() -> dict[int, int]:
     """{서버 ID: 채널 ID} — 자동 전송이 켜져 있는 서버만."""
     with _tx() as conn:
