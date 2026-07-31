@@ -1,23 +1,39 @@
 name: Daily Foodpia Bot
 
+# 식단 브리핑만 담당하는 단발 실행 워크플로입니다.
+# 경험치·레벨·칭호 시스템은 상시 실행이 필요해 여기서는 동작하지 않습니다.
+# (그쪽은 bot.py 를 24시간 켜두는 환경에서 실행하세요.)
+
 on:
   schedule:
-    # 한국 시간(KST) 오전 6시 (UTC 21:00)
+    # 한국 시간(KST) 오전 6시 = UTC 21:00
+    # GitHub Actions 의 cron 은 러너가 붐빌 때 수 분~수십 분 늦게 실행될 수 있습니다.
     - cron: '0 21 * * *'
-  workflow_dispatch: # 수동 실행 버튼 활성화
+  workflow_dispatch: # 수동 실행 버튼
+
+# 이전 실행이 밀렸을 때 겹쳐 돌아 식단이 두 번 올라가는 것을 막습니다.
+concurrency:
+  group: daily-menu
+  cancel-in-progress: false
 
 jobs:
-  build:
+  send-menu:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
+          cache: pip
+
       - name: Install dependencies
-        run: |
-          # 진짜 봇 작동에 필요한 라이브러리를 추가로 설치합니다.
-          pip install requests beautifulsoup4 discord.py
-      - name: Run Bot
+        run: pip install -r requirements.txt
+
+      - name: Send menu
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          MENU_CHANNEL_ID: ${{ secrets.MENU_CHANNEL_ID }}
         run: python food_bot.py
