@@ -194,6 +194,35 @@ async function testHelpCommandListsEveryoneAndAdminSeparately() {
   console.log("  /도움말: 명령어 정의 기반 자동 생성 + 권한별 분류 OK");
 }
 
+async function testDebugMenuRequiresTokenAndReturnsRawBody() {
+  const { publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex);
+  env.SETUP_TOKEN = "correct-token";
+  const { ctx } = fakeCtx();
+
+  globalThis.fetch = async () => {
+    throw new Error("토큰이 틀리면 사이트에 요청하면 안 됩니다");
+  };
+  const noToken = await handleRequest(new Request("https://example.com/setup/debug-menu"), env, ctx);
+  assert.equal(noToken.status, 403);
+  console.log("  /setup/debug-menu: 토큰 없음 → 403 + 요청 미발생 OK");
+
+  globalThis.fetch = async (url) => {
+    assert.ok(url.toString().includes("buspia.co.kr"));
+    return new Response("<html><body>구조가 바뀐 페이지</body></html>", { status: 200, statusText: "OK" });
+  };
+  const res = await handleRequest(
+    new Request("https://example.com/setup/debug-menu?token=correct-token"),
+    env,
+    ctx,
+  );
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.match(text, /HTTP 200 OK/);
+  assert.match(text, /구조가 바뀐 페이지/);
+  console.log("  /setup/debug-menu: 정답 토큰 → 실제 사이트 응답 원문 그대로 반환 OK");
+}
+
 async function testHandlerErrorDoesNotCrash() {
   const { privateKey, publicKeyHex } = await makeKeypair();
   const env = fakeEnv(publicKeyHex);
@@ -270,6 +299,7 @@ async function testRegisterCommandsSucceedsWithCorrectToken() {
 
 await testRegisterCommandsRequiresToken();
 await testRegisterCommandsSucceedsWithCorrectToken();
+await testDebugMenuRequiresTokenAndReturnsRawBody();
 await testRejectsNonPost();
 await testRejectsInvalidSignature();
 await testRejectsTamperedBody();

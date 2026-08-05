@@ -9,6 +9,7 @@
 import { verifySignature, rest } from "./discord";
 import { sendDailyMenu } from "./scheduled";
 import { COMMAND_DEFINITIONS } from "./command-definitions";
+import { MENU_URL } from "./menu-source";
 import type { Env, Interaction, InteractionResponse } from "./types";
 
 import * as leveling from "./commands/leveling";
@@ -69,11 +70,33 @@ async function handleRegisterCommands(request: Request, env: Env): Promise<Respo
   });
 }
 
+/**
+ * 식단표 사이트의 실제 응답을 그대로 보여주는 진단용 엔드포인트입니다.
+ * 이 샌드박스 환경은 그 사이트로 나가는 네트워크가 막혀 있어 직접 확인할 수
+ * 없으므로, 실제 봇이 보는 것과 동일한 응답을 Worker가 대신 가져와 보여줍니다.
+ * 다 쓰신 뒤에는 SETUP_TOKEN secret을 지워서 잠가 두셔도 됩니다.
+ */
+async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
+  const token = new URL(request.url).searchParams.get("token");
+  if (!env.SETUP_TOKEN || token !== env.SETUP_TOKEN) {
+    return new Response("권한이 없습니다.", { status: 403 });
+  }
+
+  const res = await fetch(MENU_URL, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const body = await res.text();
+  return new Response(`HTTP ${res.status} ${res.statusText}\n\n${body}`, {
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
 /** 요청을 받아 처리하는 본체. fetch()에서 분리해 둔 이유는 Node에서 직접 테스트하기 위해서입니다. */
 export async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/setup/register-commands") {
     return handleRegisterCommands(request, env);
+  }
+  if (request.method === "GET" && url.pathname === "/setup/debug-menu") {
+    return handleDebugMenu(request, env);
   }
 
   if (request.method !== "POST") {
