@@ -223,6 +223,52 @@ async function testDebugMenuRequiresTokenAndReturnsRawBody() {
   console.log("  /setup/debug-menu: 정답 토큰 → 실제 사이트 응답 원문 그대로 반환 OK");
 }
 
+async function testDebugMenuAcceptsCustomUrl() {
+  const { publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex);
+  env.SETUP_TOKEN = "correct-token";
+  const { ctx } = fakeCtx();
+
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = url.toString();
+    return new Response("다른 사이트 원문", { status: 200, statusText: "OK" });
+  };
+
+  const other = "https://daewon-app.pages.dev/?ai=ai001";
+  const res = await handleRequest(
+    new Request(
+      `https://example.com/setup/debug-menu?token=correct-token&url=${encodeURIComponent(other)}`,
+    ),
+    env,
+    ctx,
+  );
+  assert.equal(requestedUrl, other, "url 파라미터로 지정한 주소를 그대로 요청해야 함");
+  assert.match(await res.text(), /다른 사이트 원문/);
+  console.log("  /setup/debug-menu: url 파라미터로 임의 주소 확인 OK");
+
+  // SSRF 방지: https가 아니거나 형식이 잘못된 주소는 거부
+  globalThis.fetch = async () => {
+    throw new Error("잘못된 url이면 요청을 시도하면 안 됩니다");
+  };
+  const nonHttps = await handleRequest(
+    new Request(
+      `https://example.com/setup/debug-menu?token=correct-token&url=${encodeURIComponent("http://internal.local/secret")}`,
+    ),
+    env,
+    ctx,
+  );
+  assert.equal(nonHttps.status, 400);
+
+  const malformed = await handleRequest(
+    new Request(`https://example.com/setup/debug-menu?token=correct-token&url=not-a-url`),
+    env,
+    ctx,
+  );
+  assert.equal(malformed.status, 400);
+  console.log("  /setup/debug-menu: https 아니거나 잘못된 url 형식 거부 OK");
+}
+
 async function testHandlerErrorDoesNotCrash() {
   const { privateKey, publicKeyHex } = await makeKeypair();
   const env = fakeEnv(publicKeyHex);
@@ -300,6 +346,7 @@ async function testRegisterCommandsSucceedsWithCorrectToken() {
 await testRegisterCommandsRequiresToken();
 await testRegisterCommandsSucceedsWithCorrectToken();
 await testDebugMenuRequiresTokenAndReturnsRawBody();
+await testDebugMenuAcceptsCustomUrl();
 await testRejectsNonPost();
 await testRejectsInvalidSignature();
 await testRejectsTamperedBody();

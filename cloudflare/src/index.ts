@@ -71,18 +71,31 @@ async function handleRegisterCommands(request: Request, env: Env): Promise<Respo
 }
 
 /**
- * 식단표 사이트의 실제 응답을 그대로 보여주는 진단용 엔드포인트입니다.
- * 이 샌드박스 환경은 그 사이트로 나가는 네트워크가 막혀 있어 직접 확인할 수
- * 없으므로, 실제 봇이 보는 것과 동일한 응답을 Worker가 대신 가져와 보여줍니다.
+ * 임의의 주소를 Worker가 대신 가져와 응답을 그대로 보여주는 진단용
+ * 엔드포인트입니다. 개발 환경은 여러 외부 사이트로 나가는 네트워크가 막혀
+ * 있어 직접 확인할 수 없으므로, 실제 봇과 같은 네트워크 경로로 대신
+ * 가져옵니다. `url` 파라미터를 생략하면 식단표 주소(MENU_URL)를 봅니다.
  * 다 쓰신 뒤에는 SETUP_TOKEN secret을 지워서 잠가 두셔도 됩니다.
  */
 async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
-  const token = new URL(request.url).searchParams.get("token");
+  const params = new URL(request.url).searchParams;
+  const token = params.get("token");
   if (!env.SETUP_TOKEN || token !== env.SETUP_TOKEN) {
     return new Response("권한이 없습니다.", { status: 403 });
   }
 
-  const res = await fetch(MENU_URL, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const target = params.get("url") || MENU_URL;
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(target);
+  } catch {
+    return new Response("url 파라미터가 올바른 주소가 아닙니다.", { status: 400 });
+  }
+  if (targetUrl.protocol !== "https:") {
+    return new Response("https 주소만 확인할 수 있습니다.", { status: 400 });
+  }
+
+  const res = await fetch(targetUrl.toString(), { headers: { "User-Agent": "Mozilla/5.0" } });
   const body = await res.text();
   return new Response(`HTTP ${res.status} ${res.statusText}\n\n${body}`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
