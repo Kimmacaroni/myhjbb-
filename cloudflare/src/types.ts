@@ -59,11 +59,6 @@ export interface Interaction {
   };
 }
 
-export interface ResolvedMember {
-  user: DiscordUser;
-  roles: string[];
-}
-
 /** https://discord.com/developers/docs/interactions/receiving-and-responding */
 export interface InteractionResponse {
   type: number;

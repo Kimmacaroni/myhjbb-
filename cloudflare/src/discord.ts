@@ -136,8 +136,29 @@ export async function editRolePositions(
 }
 
 export interface GuildMember {
-  user: { id: string; username: string; bot?: boolean };
+  user: { id: string; username: string; bot?: boolean; avatar?: string | null };
   roles: string[];
+}
+
+/**
+ * 멤버 한 명을 조회합니다. 없으면(서버에 없는 유저 ID 등) null.
+ *
+ * 유저 지정 옵션을 디스코드 기본 USER 타입 대신 텍스트(멘션/ID)로 받기
+ * 때문에 필요합니다 — USER 타입이었다면 인터랙션에 자동으로 딸려오던
+ * 멤버 정보(아바타, 역할 등)를 직접 조회해야 합니다.
+ */
+export async function getMember(
+  token: string,
+  guildId: string,
+  userId: string,
+): Promise<GuildMember | null> {
+  try {
+    const res = await rest(token, "GET", `/guilds/${guildId}/members/${userId}`);
+    return await res.json();
+  } catch (err) {
+    if (err instanceof DiscordRestError && err.status === 404) return null;
+    throw err;
+  }
 }
 
 /** 서버 멤버 전체 목록. Discord API 한도(1회 최대 1000명)라 페이지네이션합니다. */

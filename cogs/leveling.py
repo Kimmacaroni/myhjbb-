@@ -5,6 +5,7 @@
 """
 import logging
 import random
+import re
 import time
 
 import discord
@@ -16,6 +17,40 @@ import db
 import levels
 
 log = logging.getLogger(__name__)
+
+# 자릿수를 실제 스노우플레이크 길이(17~19자리)로 엄격히 제한하지 않습니다 —
+# 잘못된 ID는 어차피 resolve_member()의 서버 조회에서 걸러지므로, 여기서는
+# "숫자로만 이루어졌는지"만 확인합니다.
+_MENTION_RE = re.compile(r"^<@!?(\d{1,20})>$")
+_ID_RE = re.compile(r"^\d{1,20}$")
+
+_MEMBER_RESOLVE_FAILED = (
+    "유저를 멘션(@닉네임)하거나 유저 ID를 입력해 주세요. (이 서버에 없는 유저일 수도 있습니다)"
+)
+
+
+async def resolve_member(guild: discord.Guild, raw: str) -> discord.Member | None:
+    """멘션(`<@id>`) 또는 순수 ID 텍스트에서 서버 멤버를 찾습니다.
+
+    디스코드 기본 유저 선택 옵션(discord.Member 타입)을 쓰지 않는 이유:
+    그 선택 목록은 명령어를 입력하는 채널을 볼 수 있는 사람만 후보로
+    보여주는 디스코드 클라이언트 제약이 있습니다. 관리자 전용 채널에서
+    일반 멤버를 대상으로 지정해야 하는 경우 후보에 아예 뜨지 않으므로,
+    대신 멘션/ID를 텍스트로 받아 여기서 직접 파싱합니다.
+    """
+    raw = raw.strip()
+    match = _MENTION_RE.match(raw)
+    user_id = int(match.group(1)) if match else (int(raw) if _ID_RE.match(raw) else None)
+    if user_id is None:
+        return None
+
+    member = guild.get_member(user_id)
+    if member is not None:
+        return member
+    try:
+        return await guild.fetch_member(user_id)
+    except discord.NotFound:
+        return None
 
 
 @app_commands.guild_only()
@@ -153,9 +188,15 @@ class Leveling(commands.Cog):
     # ── 조회 명령어 ───────────────────────────────────
 
     @app_commands.command(name="경험치", description="내 경험치와 레벨을 확인합니다.")
-    @app_commands.describe(유저="확인할 대상 (생략하면 본인)")
-    async def show_xp(self, interaction: discord.Interaction, 유저: discord.Member | None = None):
-        member = 유저 or interaction.user
+    @app_commands.describe(유저="확인할 대상 — 멘션(@닉네임) 또는 유저 ID (생략하면 본인)")
+    async def show_xp(self, interaction: discord.Interaction, 유저: str | None = None):
+        if 유저 is None:
+            member = interaction.user
+        else:
+            member = await resolve_member(interaction.guild, 유저)
+            if member is None:
+                await interaction.response.send_message(_MEMBER_RESOLVE_FAILED, ephemeral=True)
+                return
         row = db.get_user(interaction.guild.id, member.id)
         level, earned, needed = levels.progress(row["xp"])
         rank = db.rank_of(interaction.guild.id, member.id)
@@ -217,41 +258,53 @@ class Leveling(commands.Cog):
     # ── 수동 조정 명령어 ──────────────────────────────
 
     @app_commands.command(name="경험치지급", description="지정한 멤버에게 경험치를 지급합니다.")
-    @app_commands.describe(유저="지급 대상", 수량="지급할 경험치")
+    @app_commands.describe(유저="지급 대상 — 멘션(@닉네임) 또는 유저 ID", 수량="지급할 경험치")
     @app_commands.checks.has_permissions(manage_roles=True)
     @app_commands.default_permissions(manage_roles=True)
     async def give_xp(
         self,
         interaction: discord.Interaction,
-        유저: discord.Member,
+        유저: str,
         수량: app_commands.Range[int, 1, 1_000_000],
     ):
-        await self._adjust(interaction, 유저, 수량)
+        member = await resolve_member(interaction.guild, 유저)
+        if member is None:
+            await interaction.response.send_message(_MEMBER_RESOLVE_FAILED, ephemeral=True)
+            return
+        await self._adjust(interaction, member, 수량)
 
     @app_commands.command(name="경험치차감", description="지정한 멤버의 경험치를 차감합니다.")
-    @app_commands.describe(유저="차감 대상", 수량="차감할 경험치")
+    @app_commands.describe(유저="차감 대상 — 멘션(@닉네임) 또는 유저 ID", 수량="차감할 경험치")
     @app_commands.checks.has_permissions(manage_roles=True)
     @app_commands.default_permissions(manage_roles=True)
     async def take_xp(
         self,
         interaction: discord.Interaction,
-        유저: discord.Member,
+        유저: str,
         수량: app_commands.Range[int, 1, 1_000_000],
     ):
-        await self._adjust(interaction, 유저, -수량)
+        member = await resolve_member(interaction.guild, 유저)
+        if member is None:
+            await interaction.response.send_message(_MEMBER_RESOLVE_FAILED, ephemeral=True)
+            return
+        await self._adjust(interaction, member, -수량)
 
     @app_commands.command(name="경험치설정", description="멤버의 경험치를 특정 값으로 맞춥니다.")
-    @app_commands.describe(유저="대상", 수량="설정할 누적 경험치")
+    @app_commands.describe(유저="대상 — 멘션(@닉네임) 또는 유저 ID", 수량="설정할 누적 경험치")
     @app_commands.checks.has_permissions(manage_roles=True)
     @app_commands.default_permissions(manage_roles=True)
     async def set_xp(
         self,
         interaction: discord.Interaction,
-        유저: discord.Member,
+        유저: str,
         수량: app_commands.Range[int, 0, 10_000_000],
     ):
-        current = db.get_user(interaction.guild.id, 유저.id)["xp"]
-        await self._adjust(interaction, 유저, 수량 - current)
+        member = await resolve_member(interaction.guild, 유저)
+        if member is None:
+            await interaction.response.send_message(_MEMBER_RESOLVE_FAILED, ephemeral=True)
+            return
+        current = db.get_user(interaction.guild.id, member.id)["xp"]
+        await self._adjust(interaction, member, 수량 - current)
 
     async def _adjust(
         self, interaction: discord.Interaction, member: discord.Member, delta: int

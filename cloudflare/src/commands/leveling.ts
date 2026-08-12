@@ -5,10 +5,20 @@
  */
 import * as db from "../db";
 import { progress, progressBar } from "../levels";
-import { addRole, removeRole, EPHEMERAL } from "../discord";
+import { addRole, removeRole, getMember, EPHEMERAL } from "../discord";
 import type { Env, Interaction, InteractionResponse } from "../types";
-import { getOption, resolvedMember, mention } from "../interactions";
+import { getOption, parseUserId, mention } from "../interactions";
 import { requirePermission, PERMISSIONS } from "../permissions";
+
+const INVALID_USER_INPUT: InteractionResponse = {
+  type: 4,
+  data: { content: "유저를 멘션(@닉네임)하거나 유저 ID를 입력해 주세요.", flags: EPHEMERAL },
+};
+
+const MEMBER_NOT_FOUND: InteractionResponse = {
+  type: 4,
+  data: { content: "이 서버에서 해당 유저를 찾을 수 없습니다.", flags: EPHEMERAL },
+};
 
 /**
  * 레벨이 바뀌면 칭호(역할)를 다시 계산해 지급/회수합니다.
@@ -39,14 +49,25 @@ export async function applyTitleSync(
 
 export async function handleShowXp(env: Env, interaction: Interaction): Promise<InteractionResponse> {
   const targetOption = getOption(interaction, "유저");
-  const targetId = (targetOption?.value as string) ?? interaction.member!.user.id;
-  const resolved = resolvedMember(interaction, targetId);
-  const avatarHash = resolved?.user.avatar;
+  const guildId = interaction.guild_id!;
+
+  let targetId: string;
+  let avatarHash: string | null | undefined;
+  if (targetOption) {
+    const parsed = parseUserId(targetOption.value as string);
+    if (!parsed) return INVALID_USER_INPUT;
+    const member = await getMember(env.DISCORD_TOKEN, guildId, parsed);
+    if (!member) return MEMBER_NOT_FOUND;
+    targetId = parsed;
+    avatarHash = member.user.avatar;
+  } else {
+    targetId = interaction.member!.user.id;
+    avatarHash = interaction.member!.user.avatar;
+  }
   const avatarUrl = avatarHash
     ? `https://cdn.discordapp.com/avatars/${targetId}/${avatarHash}.png`
     : undefined;
 
-  const guildId = interaction.guild_id!;
   const row = await db.getUser(env.DB, guildId, targetId);
   const rank = await db.rankOf(env.DB, guildId, targetId);
   const p = progress(row.xp);
@@ -104,22 +125,26 @@ export async function handleLeaderboard(env: Env, interaction: Interaction): Pro
 async function adjustXp(
   env: Env,
   interaction: Interaction,
-  targetId: string,
+  targetInput: string,
   delta: number,
 ): Promise<InteractionResponse> {
   const denied = requirePermission(interaction, PERMISSIONS.MANAGE_ROLES);
   if (denied) return denied;
 
-  const resolved = resolvedMember(interaction, targetId);
-  if (resolved?.user.bot) {
+  const targetId = parseUserId(targetInput);
+  if (!targetId) return INVALID_USER_INPUT;
+
+  const guildId = interaction.guild_id!;
+  const member = await getMember(env.DISCORD_TOKEN, guildId, targetId);
+  if (!member) return MEMBER_NOT_FOUND;
+  if (member.user.bot) {
     return { type: 4, data: { content: "봇에게는 경험치를 줄 수 없습니다.", flags: EPHEMERAL } };
   }
 
-  const guildId = interaction.guild_id!;
   const { before, after, xp } = await db.addXp(env.DB, guildId, targetId, delta);
 
   if (before !== after) {
-    await applyTitleSync(env, guildId, targetId, resolved?.roles ?? [], after);
+    await applyTitleSync(env, guildId, targetId, member.roles, after);
   }
 
   const verb = delta >= 0 ? "지급" : "차감";
@@ -153,9 +178,12 @@ export async function handleSetXp(env: Env, interaction: Interaction): Promise<I
   const denied = requirePermission(interaction, PERMISSIONS.MANAGE_ROLES);
   if (denied) return denied;
 
-  const target = getOption(interaction, "유저")!.value as string;
+  const targetInput = getOption(interaction, "유저")!.value as string;
+  const targetId = parseUserId(targetInput);
+  if (!targetId) return INVALID_USER_INPUT;
+
   const value = Number(getOption(interaction, "수량")!.value);
   const guildId = interaction.guild_id!;
-  const current = await db.getUser(env.DB, guildId, target);
-  return adjustXp(env, interaction, target, value - current.xp);
+  const current = await db.getUser(env.DB, guildId, targetId);
+  return adjustXp(env, interaction, targetId, value - current.xp);
 }

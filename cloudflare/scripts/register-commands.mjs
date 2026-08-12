@@ -27,7 +27,7 @@ if (!TOKEN || !APPLICATION_ID) {
   process.exit(1);
 }
 
-const OPTION_TYPE = { STRING: 3, INTEGER: 4, USER: 6, CHANNEL: 7 };
+const OPTION_TYPE = { STRING: 3, INTEGER: 4, CHANNEL: 7 };
 const PERMISSIONS = { MANAGE_GUILD: String(1 << 5), MANAGE_ROLES: String(1 << 28) };
 const GUILD_TEXT_CHANNEL = 0;
 
@@ -40,7 +40,12 @@ const commands = [
     name: "경험치",
     description: "내 경험치와 레벨을 확인합니다.",
     options: [
-      { name: "유저", description: "확인할 대상 (생략하면 본인)", type: OPTION_TYPE.USER, required: false },
+      {
+        name: "유저",
+        description: "확인할 대상 — 멘션(@닉네임) 또는 유저 ID (생략하면 본인)",
+        type: OPTION_TYPE.STRING,
+        required: false,
+      },
     ],
   },
   {
@@ -62,7 +67,7 @@ const commands = [
     description: "지정한 멤버에게 경험치를 지급합니다.",
     default_member_permissions: PERMISSIONS.MANAGE_ROLES,
     options: [
-      { name: "유저", description: "지급 대상", type: OPTION_TYPE.USER, required: true },
+      { name: "유저", description: "지급 대상 — 멘션(@닉네임) 또는 유저 ID", type: OPTION_TYPE.STRING, required: true },
       { name: "수량", description: "지급할 경험치", type: OPTION_TYPE.INTEGER, required: true, min_value: 1 },
     ],
   },
@@ -71,7 +76,7 @@ const commands = [
     description: "지정한 멤버의 경험치를 차감합니다.",
     default_member_permissions: PERMISSIONS.MANAGE_ROLES,
     options: [
-      { name: "유저", description: "차감 대상", type: OPTION_TYPE.USER, required: true },
+      { name: "유저", description: "차감 대상 — 멘션(@닉네임) 또는 유저 ID", type: OPTION_TYPE.STRING, required: true },
       { name: "수량", description: "차감할 경험치", type: OPTION_TYPE.INTEGER, required: true, min_value: 1 },
     ],
   },
@@ -80,7 +85,7 @@ const commands = [
     description: "멤버의 경험치를 특정 값으로 맞춥니다.",
     default_member_permissions: PERMISSIONS.MANAGE_ROLES,
     options: [
-      { name: "유저", description: "대상", type: OPTION_TYPE.USER, required: true },
+      { name: "유저", description: "대상 — 멘션(@닉네임) 또는 유저 ID", type: OPTION_TYPE.STRING, required: true },
       { name: "수량", description: "설정할 누적 경험치", type: OPTION_TYPE.INTEGER, required: true, min_value: 0 },
     ],
   },

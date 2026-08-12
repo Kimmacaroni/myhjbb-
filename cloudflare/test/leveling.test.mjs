@@ -22,12 +22,7 @@ function fakeEnv() {
   };
 }
 
-function baseInteraction({
-  permissions = MANAGE_ROLES,
-  options = [],
-  resolvedUsers = {},
-  resolvedMembers = {},
-} = {}) {
+function baseInteraction({ permissions = MANAGE_ROLES, options = [] } = {}) {
   return {
     id: "interaction-1",
     application_id: "app-id",
@@ -40,20 +35,30 @@ function baseInteraction({
       roles: [],
       permissions,
     },
-    data: {
-      id: "cmd-1",
-      name: "test",
-      options,
-      resolved: { users: resolvedUsers, members: resolvedMembers },
-    },
+    data: { id: "cmd-1", name: "test", options },
   };
 }
 
-/** discord.ts의 rest()가 쓰는 전역 fetch를 가로채 호출 내역만 기록합니다. */
-function stubFetch() {
+/**
+ * discord.ts의 rest()가 쓰는 전역 fetch를 가로챕니다. 관리자 채널에서도
+ * 일반 멤버를 지정할 수 있도록 "유저" 옵션을 멘션/ID 텍스트로 받기 때문에,
+ * 이제 대상 멤버 정보는 (인터랙션에 자동으로 딸려오지 않고) GET
+ * /guilds/{g}/members/{u} REST 호출로 직접 조회합니다 — 그 응답을 여기서
+ * 흉내냅니다.
+ */
+function stubFetch({ members = {} } = {}) {
   const calls = [];
   globalThis.fetch = async (url, init) => {
-    calls.push({ url: url.toString(), method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
+    const u = url.toString();
+    calls.push({ url: u, method: init?.method, body: init?.body ? JSON.parse(init.body) : undefined });
+
+    const memberMatch = u.match(/\/guilds\/[^/]+\/members\/([^/]+)$/);
+    if (memberMatch && (init?.method ?? "GET") === "GET") {
+      const member = members[memberMatch[1]];
+      if (!member) return new Response("찾을 수 없음", { status: 404 });
+      return new Response(JSON.stringify(member), { status: 200 });
+    }
+
     return new Response("{}", { status: 200 });
   };
   return calls;
@@ -69,14 +74,13 @@ async function testGiveXpCrossesLevelAndAssignsTitle() {
   await db.addTitle(env.DB, GUILD, "999", "고인물", 10);
 
   const needed5 = levels.totalXpForLevel(5);
-  const calls = stubFetch();
+  const calls = stubFetch({ members: { [TARGET]: { user: { id: TARGET, username: "target", bot: false }, roles: [] } } });
 
   const interaction = baseInteraction({
     options: [
-      { name: "유저", type: 6, value: TARGET },
+      { name: "유저", type: 3, value: `<@${TARGET}>` },
       { name: "수량", type: 4, value: needed5 },
     ],
-    resolvedUsers: { [TARGET]: { id: TARGET, username: "target", bot: false } },
   });
 
   const res = await leveling.handleGiveXp(env, interaction);
@@ -96,16 +100,16 @@ async function testGiveXpCrossesLevelAndAssignsTitle() {
 async function testLevelUpSwapsTitle(env) {
   const needed10 = levels.totalXpForLevel(10);
   const current = (await db.getUser(env.DB, GUILD, TARGET)).xp;
-  const calls = stubFetch();
+  // 이전 명령으로 이미 555(초보자) 역할을 갖고 있는 상태를 반영합니다.
+  const calls = stubFetch({
+    members: { [TARGET]: { user: { id: TARGET, username: "target", bot: false }, roles: ["555"] } },
+  });
 
   const interaction = baseInteraction({
     options: [
-      { name: "유저", type: 6, value: TARGET },
+      { name: "유저", type: 3, value: TARGET }, // ID를 그냥 숫자로 입력해도 되는지 확인
       { name: "수량", type: 4, value: needed10 - current },
     ],
-    resolvedUsers: { [TARGET]: { id: TARGET, username: "target", bot: false } },
-    // 이전 명령으로 이미 555(초보자) 역할을 갖고 있는 상태를 반영합니다.
-    resolvedMembers: { [TARGET]: { roles: ["555"] } },
   });
 
   const res = await leveling.handleGiveXp(env, interaction);
@@ -119,71 +123,90 @@ async function testLevelUpSwapsTitle(env) {
 
 async function testPermissionDenied() {
   const env = fakeEnv();
-  const calls = stubFetch();
+  const calls = stubFetch({ members: { [TARGET]: { user: { id: TARGET, username: "target", bot: false }, roles: [] } } });
   const interaction = baseInteraction({
     permissions: NO_PERMS,
     options: [
-      { name: "유저", type: 6, value: TARGET },
+      { name: "유저", type: 3, value: `<@${TARGET}>` },
       { name: "수량", type: 4, value: 100 },
     ],
-    resolvedUsers: { [TARGET]: { id: TARGET, username: "target", bot: false } },
   });
 
   const res = await leveling.handleGiveXp(env, interaction);
   assert.match(res.data.content, /역할 관리/);
   assert.equal((await db.getUser(env.DB, GUILD, TARGET)).xp, 0, "권한 없으면 경험치가 바뀌면 안 됩니다");
-  assert.equal(calls.length, 0, "권한 없으면 디스코드 API를 호출하면 안 됩니다");
+  assert.equal(calls.length, 0, "권한 없으면 디스코드 API를 호출하면 안 됩니다 (멤버 조회조차 하면 안 됨)");
 
   console.log("  권한 없는 사용자 → 거부 + DB/API 변경 없음 OK");
 }
 
 async function testCannotGiveXpToBot() {
   const env = fakeEnv();
-  const calls = stubFetch();
   const BOT_ID = "8001";
+  const calls = stubFetch({ members: { [BOT_ID]: { user: { id: BOT_ID, username: "bot", bot: true }, roles: [] } } });
   const interaction = baseInteraction({
     options: [
-      { name: "유저", type: 6, value: BOT_ID },
+      { name: "유저", type: 3, value: `<@${BOT_ID}>` },
       { name: "수량", type: 4, value: 100 },
     ],
-    resolvedUsers: { [BOT_ID]: { id: BOT_ID, username: "bot", bot: true } },
   });
 
   const res = await leveling.handleGiveXp(env, interaction);
   assert.match(res.data.content, /봇에게는/);
-  assert.equal(calls.length, 0);
+  assert.equal(calls.filter((c) => c.method === "PUT" || c.method === "DELETE").length, 0);
 
   console.log("  봇 대상 경험치 지급 차단 OK");
 }
 
+async function testRejectsInvalidOrUnknownUserInput() {
+  const env = fakeEnv();
+  stubFetch({});
+  const garbage = baseInteraction({
+    options: [
+      { name: "유저", type: 3, value: "누구세요" },
+      { name: "수량", type: 4, value: 100 },
+    ],
+  });
+  const res1 = await leveling.handleGiveXp(env, garbage);
+  assert.match(res1.data.content, /멘션.*유저 ID/);
+
+  const unknown = baseInteraction({
+    options: [
+      { name: "유저", type: 3, value: "999999999999999999" }, // 서버에 없는 ID
+      { name: "수량", type: 4, value: 100 },
+    ],
+  });
+  const res2 = await leveling.handleGiveXp(env, unknown);
+  assert.match(res2.data.content, /찾을 수 없습니다/);
+
+  console.log("  유저 텍스트를 못 알아보거나 서버에 없으면 안내 메시지 OK");
+}
+
 async function testTakeAndSetXp() {
   const env = fakeEnv();
-  stubFetch();
+  stubFetch({ members: { [TARGET]: { user: { id: TARGET, username: "t", bot: false }, roles: [] } } });
   const give = baseInteraction({
     options: [
-      { name: "유저", type: 6, value: TARGET },
+      { name: "유저", type: 3, value: `<@${TARGET}>` },
       { name: "수량", type: 4, value: 500 },
     ],
-    resolvedUsers: { [TARGET]: { id: TARGET, username: "t", bot: false } },
   });
   await leveling.handleGiveXp(env, give);
 
   const take = baseInteraction({
     options: [
-      { name: "유저", type: 6, value: TARGET },
+      { name: "유저", type: 3, value: `<@!${TARGET}>` }, // 닉네임 멘션(<@!id>) 형태도 지원
       { name: "수량", type: 4, value: 200 },
     ],
-    resolvedUsers: { [TARGET]: { id: TARGET, username: "t", bot: false } },
   });
   await leveling.handleTakeXp(env, take);
   assert.equal((await db.getUser(env.DB, GUILD, TARGET)).xp, 300);
 
   const set = baseInteraction({
     options: [
-      { name: "유저", type: 6, value: TARGET },
+      { name: "유저", type: 3, value: `<@${TARGET}>` },
       { name: "수량", type: 4, value: 42 },
     ],
-    resolvedUsers: { [TARGET]: { id: TARGET, username: "t", bot: false } },
   });
   await leveling.handleSetXp(env, set);
   assert.equal((await db.getUser(env.DB, GUILD, TARGET)).xp, 42);
@@ -194,11 +217,29 @@ async function testTakeAndSetXp() {
 async function testShowXpUsesInvokerWithoutOption() {
   const env = fakeEnv();
   await db.addXp(env.DB, GUILD, ADMIN, 150);
+  stubFetch({});
   const interaction = baseInteraction({ options: [] }); // 유저 옵션 생략 → 본인
   const res = await leveling.handleShowXp(env, interaction);
   assert.match(res.data.embeds[0].title, new RegExp(`<@${ADMIN}>`));
   assert.match(res.data.embeds[0].fields[0].value, /\*\*1\*\*/); // 150xp → 레벨 1
   console.log("  /경험치 유저 옵션 생략 시 본인 조회 OK");
+}
+
+async function testShowXpResolvesOtherUserRegardlessOfChannel() {
+  const env = fakeEnv();
+  await db.addXp(env.DB, GUILD, TARGET, 150);
+  const calls = stubFetch({
+    members: { [TARGET]: { user: { id: TARGET, username: "target", bot: false, avatar: "abc123" }, roles: [] } },
+  });
+  const interaction = baseInteraction({ options: [{ name: "유저", type: 3, value: `<@${TARGET}>` }] });
+  const res = await leveling.handleShowXp(env, interaction);
+  assert.match(res.data.embeds[0].title, new RegExp(`<@${TARGET}>`));
+  assert.ok(res.data.embeds[0].thumbnail?.url.includes("abc123"), "아바타도 REST로 조회해 반영되어야 함");
+  assert.ok(
+    calls.some((c) => c.url.includes(`/members/${TARGET}`)),
+    "USER 옵션 없이 멘션 텍스트만으로도 멤버 정보를 직접 조회해야 함 (채널 가시성과 무관)",
+  );
+  console.log("  /경험치 유저:멘션 → 채널 가시성과 무관하게 대상 조회 OK");
 }
 
 async function testLeaderboardClampsAndUsesMentions() {
@@ -216,7 +257,9 @@ async function testLeaderboardClampsAndUsesMentions() {
 await testLevelUpSwapsTitle(await testGiveXpCrossesLevelAndAssignsTitle());
 await testPermissionDenied();
 await testCannotGiveXpToBot();
+await testRejectsInvalidOrUnknownUserInput();
 await testTakeAndSetXp();
 await testShowXpUsesInvokerWithoutOption();
+await testShowXpResolvesOtherUserRegardlessOfChannel();
 await testLeaderboardClampsAndUsesMentions();
 console.log("leveling.ts 전부 통과 ✅");
