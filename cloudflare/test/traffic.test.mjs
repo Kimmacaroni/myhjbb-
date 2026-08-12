@@ -129,7 +129,7 @@ async function testPerformTrafficNowReportsNoIncidents() {
 
   await traffic.performTrafficNow(env, interaction);
   assert.match(editedBody.content, /없습니다/);
-  console.log("  /교통정보: 돌발상황 없음 → 안내 메시지 OK");
+  console.log("  /교통정보: 심한 정체 없음 → 안내 메시지 OK");
 }
 
 await testSetChannelSuccessProbesBeforeSaving();

@@ -1,6 +1,7 @@
 /**
- * 교통정보(고속도로 돌발상황) 명령어. 채널 설정 시 실제로 메시지를 보내볼 수
- * 있는지 즉시 테스트합니다 — cogs/menu.py·commands/menu.ts와 같은 이유입니다.
+ * 교통정보(고속도로 정체 구간) 명령어. 채널 설정 시 실제로 메시지를 보내볼
+ * 수 있는지 즉시 테스트합니다 — cogs/menu.py·commands/menu.ts와 같은
+ * 이유입니다.
  */
 import * as db from "../db";
 import { sendChannelMessage, editOriginalResponse, DiscordRestError, EPHEMERAL } from "../discord";
@@ -24,7 +25,7 @@ export async function performTrafficNow(env: Env, interaction: Interaction): Pro
     const incidents = await fetchIncidents(env.HIGHWAY_API_KEY);
     if (incidents.length === 0) {
       await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, {
-        content: "✅ 현재 등록된 고속도로 돌발상황이 없습니다.",
+        content: "✅ 현재 심한 정체 구간이 없습니다.",
       });
       return;
     }
@@ -47,7 +48,7 @@ export async function handleSetTrafficChannel(env: Env, interaction: Interaction
 
   try {
     await sendChannelMessage(env.DISCORD_TOKEN, channelId, {
-      content: "✅ 이 채널에 고속도로 돌발상황(사고·정체·통제)이 생기면 5분 이내로 알려드립니다. (설정 확인 메시지)",
+      content: "✅ 이 채널에 고속도로 심한 정체 구간이 새로 생기면 5분 이내로 알려드립니다. (설정 확인 메시지)",
     });
   } catch (err) {
     const reason =
@@ -67,7 +68,7 @@ export async function handleSetTrafficChannel(env: Env, interaction: Interaction
       embeds: [
         {
           title: "✅ 교통정보 채널이 설정되었습니다",
-          description: `이제 <#${channelId}> 로 새로운 고속도로 돌발상황을 자동으로 알려드립니다.`,
+          description: `이제 <#${channelId}> 로 새로 시작된 고속도로 정체 구간을 자동으로 알려드립니다.`,
           color: 0x57f287,
         },
       ],

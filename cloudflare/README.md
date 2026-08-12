@@ -15,7 +15,7 @@ Workers는 요청이 올 때만 잠깐 실행되는 구조라, 디스코드와 �
 - 레벨이 바뀌면 칭호(역할)는 **그대로 자동 지급/회수**됩니다 (명령어 처리
   시점에 REST API로 바로 반영되므로 상시 연결이 필요 없습니다).
 - 식단 자동 전송은 Cron Trigger로 그대로 매일 실행됩니다.
-- 고속도로 돌발상황(교통정보) 알림도 Cron Trigger(5분 간격)로 새로 생긴
+- 고속도로 정체 구간(교통정보) 알림도 Cron Trigger(5분 간격)로 새로 생긴
   상황만 골라 전송합니다. `HIGHWAY_API_KEY` secret이 없으면 이 기능만
   조용히 꺼집니다.
 
@@ -174,21 +174,35 @@ Cloudflare Workers 무료 요금제는 호출 1회당 하위 요청(fetch 호출
 - 무료 요금제는 Cron Trigger를 하루 최대 몇백 회까지 지원하므로, 5분마다
   도는 교통정보 스케줄(하루 288회)은 문제없습니다.
 
-### 교통정보(한국도로공사 Open API) 필드명은 검증이 필요합니다
+### 교통정보는 "돌발상황" API가 아니라 "소통정보(정체)" API입니다
 
-`src/traffic-source.ts`(및 Python `traffic_source.py`)의 응답 필드 이름은
-공개 문서를 기준으로 최선으로 맞춘 것이라, 실제 키로 연결한 뒤 확인이
-필요합니다. `HIGHWAY_API_KEY` secret을 등록한 뒤 아래 주소를 열면
-원본 JSON을 확인할 수 있습니다 (`target=traffic` 이면 `/setup/debug-menu`가
-등록된 `HIGHWAY_API_KEY`로 서버 쪽에서 대신 조회해 주므로, 발급받은 키를
-주소창에 직접 붙여넣을 필요가 없습니다):
+처음엔 사고/공사/통제 설명이 있는 "돌발정보" API를 쓰려 했지만, 실제
+발급받아 확인해 보니 그런 API가 아니라 **도로 구간(VDS 센서)별
+속도·교통량·소통등급(grade) 숫자만 주는 API**
+(`data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest`)였습니다. 그래서
+"돌발상황 알림" 대신 "심한 정체 구간 알림"으로 동작합니다 — 사고나 통제
+자체는 이 API로 알 수 없습니다.
+
+응답 필드(`stdDate`, `stdHour`, `vdsId`, `trafficAmout`, `speed`,
+`shareRatio`, `timeAvg`, `grade`, `routeNo`, `routeName`,
+`updownTypeCode`, `conzoneId`, `conzoneName`, `code`, `message`,
+`count`)는 공식 문서로 확인했지만, **`grade`가 정체를 어떤 값으로
+표시하는지(숫자 코드 `"3"`인지 `"정체"` 같은 텍스트인지)는 아직
+실제 응답으로 확인되지 않았습니다** — `src/traffic-source.ts`의
+`isSevereCongestion()`이 숫자 `"3"`과 텍스트 안에 "정체"가 포함된 경우를
+모두 심한 정체로 인식하도록 방어적으로 짜 놨지만, 실제 값이 다르면 이
+함수만 고치면 됩니다.
+
+`HIGHWAY_API_KEY` secret을 등록한 뒤 아래 주소를 열면 실제 원본 JSON을
+확인할 수 있습니다 (`/setup/debug-menu`가 등록된 `HIGHWAY_API_KEY`로 서버
+쪽에서 대신 조회해 주므로, 발급받은 키를 주소창에 직접 붙여넣을 필요가
+없습니다):
 
 ```
 https://honorary-bot.<subdomain>.workers.dev/setup/debug-menu?token=<SETUP_TOKEN>&target=traffic
 ```
 
-응답 구조가 `parseIncidents()`가 기대하는 형태(`{"list": [{"msg" 또는
-"message", "roadName", "kind"/"gubun", "startName", "endName", ...}]}`)와
-다르면, 실제 필드 이름에 맞게 `src/traffic-source.ts`의 `RawIncident`
-매핑과 `traffic_source.py`의 `parse_incidents()`만 고치면 됩니다 — 나머지
-로직(중복 방지, 채널 알림, 명령어)은 그대로 재사용됩니다.
+grade 값을 확인한 뒤 `src/traffic-source.ts`의 `isSevereCongestion()`과
+`traffic_source.py`의 `_is_severe_congestion()`만 실제 값에 맞게 고치면
+됩니다 — 나머지 로직(정체 시작/해제 감지, 채널 알림, 명령어)은 그대로
+재사용됩니다.

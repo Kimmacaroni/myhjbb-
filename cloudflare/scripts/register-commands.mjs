@@ -143,11 +143,11 @@ const commands = [
   },
   {
     name: "교통정보",
-    description: "현재 고속도로 돌발상황(사고/정체/통제)을 지금 불러옵니다.",
+    description: "현재 고속도로 심한 정체 구간을 지금 불러옵니다.",
   },
   {
     name: "교통정보채널설정",
-    description: "고속도로 돌발상황을 자동으로 알릴 채널을 지정합니다.",
+    description: "고속도로 정체 구간을 자동으로 알릴 채널을 지정합니다.",
     default_member_permissions: PERMISSIONS.MANAGE_GUILD,
     options: [
       {
@@ -161,7 +161,7 @@ const commands = [
   },
   {
     name: "교통정보채널해제",
-    description: "고속도로 돌발상황 자동 알림을 끕니다.",
+    description: "고속도로 정체 자동 알림을 끕니다.",
     default_member_permissions: PERMISSIONS.MANAGE_GUILD,
   },
   {

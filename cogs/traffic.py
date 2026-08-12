@@ -1,15 +1,14 @@
-"""고속도로 교통정보(돌발상황) 알림.
+"""고속도로 교통정보(심한 정체 구간) 알림.
 
-한국도로공사 Open API를 몇 분마다 확인해서, 새로 생긴 사고/공사/통제만
-서버별로 지정된 채널에 알립니다. 같은 상황을 반복해서 알리지 않도록 이미
-알린 상황은 데이터베이스에 기록해 둡니다.
+한국도로공사 Open API를 몇 분마다 확인해서, 새로 정체가 시작된 구간만
+서버별로 지정된 채널에 알립니다. 정체가 계속되는 구간을 반복해서 알리지
+않도록 현재 정체 중인 구간을 데이터베이스에 기록해 둡니다.
 
 전송 채널은 `/교통정보채널설정` 명령어로 디스코드에서 바로 바꿀 수 있고,
 설정은 데이터베이스에 저장되어 재시작 후에도 유지됩니다.
 """
 import asyncio
 import logging
-from datetime import timedelta
 
 import discord
 from discord import app_commands
@@ -21,7 +20,6 @@ import traffic_source
 
 log = logging.getLogger(__name__)
 
-SEEN_INCIDENT_TTL = timedelta(hours=24)
 MAX_EMBEDS = 10  # 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
 
 
@@ -73,10 +71,11 @@ class Traffic(commands.Cog):
         except Exception:
             log.exception("교통정보 조회 실패")
             return
-        if not incidents:
-            return
 
-        new_keys = set(db.filter_new_incident_keys([i["key"] for i in incidents]))
+        # 정체가 하나도 없어도(빈 목록) 반드시 호출해야 합니다 — 그래야 이전에
+        # 정체였다가 지금은 풀린 구간이 기록에서 지워지고, 나중에 다시
+        # 정체되면 새 알림으로 잡힙니다.
+        new_keys = set(db.sync_active_incidents([i["key"] for i in incidents]))
         if not new_keys:
             return
 
@@ -94,8 +93,6 @@ class Traffic(commands.Cog):
             except discord.HTTPException:
                 log.exception("교통정보 알림 실패 (채널: %s)", channel.id)
 
-        db.prune_seen_incidents(SEEN_INCIDENT_TTL)
-
     @poll_traffic.before_loop
     async def before_poll_traffic(self):
         await self.bot.wait_until_ready()
@@ -107,7 +104,7 @@ class Traffic(commands.Cog):
     # ── 명령어 ────────────────────────────────────────
 
     @app_commands.command(
-        name="교통정보", description="현재 고속도로 돌발상황(사고/정체/통제)을 지금 불러옵니다."
+        name="교통정보", description="현재 고속도로 심한 정체 구간을 지금 불러옵니다."
     )
     async def traffic_now(self, interaction: discord.Interaction):
         if not config.HIGHWAY_API_KEY:
@@ -128,14 +125,14 @@ class Traffic(commands.Cog):
             return
 
         if not incidents:
-            await interaction.followup.send("✅ 현재 등록된 고속도로 돌발상황이 없습니다.")
+            await interaction.followup.send("✅ 현재 심한 정체 구간이 없습니다.")
             return
 
         embeds = [traffic_source.make_incident_embed(i) for i in incidents[:MAX_EMBEDS]]
         await interaction.followup.send(embeds=embeds)
 
     @app_commands.command(
-        name="교통정보채널설정", description="고속도로 돌발상황을 자동으로 알릴 채널을 지정합니다."
+        name="교통정보채널설정", description="고속도로 정체 구간을 자동으로 알릴 채널을 지정합니다."
     )
     @app_commands.describe(채널="알림을 보낼 채널 (생략하면 이 명령어를 쓴 채널)")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -159,14 +156,14 @@ class Traffic(commands.Cog):
 
         embed = discord.Embed(
             title="✅ 교통정보 채널이 설정되었습니다",
-            description=f"이제 {channel.mention} 로 새로운 고속도로 돌발상황을 자동으로 알려드립니다.",
+            description=f"이제 {channel.mention} 로 새로 시작된 고속도로 정체 구간을 자동으로 알려드립니다.",
             colour=discord.Colour.green(),
         )
         embed.set_footer(text="지금 바로 확인하려면 /교통정보 를 사용하세요.")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
-        name="교통정보채널해제", description="고속도로 돌발상황 자동 알림을 끕니다."
+        name="교통정보채널해제", description="고속도로 정체 자동 알림을 끕니다."
     )
     @app_commands.checks.has_permissions(manage_guild=True)
     @app_commands.default_permissions(manage_guild=True)

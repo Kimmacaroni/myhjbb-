@@ -90,21 +90,29 @@ async function testTrafficSettings() {
   console.log("  db.ts: 교통정보 채널 설정/덮어쓰기/해제 + 식단 설정과 독립 OK");
 }
 
-async function testSeenIncidents() {
+async function testSyncActiveIncidents() {
   const d1 = makeFakeD1(schema);
 
-  const first = await db.filterNewIncidentKeys(d1, ["a", "b"]);
-  assert.deepEqual(first.sort(), ["a", "b"]);
+  const first = await db.syncActiveIncidents(d1, ["a", "b"]);
+  assert.deepEqual(first.sort(), ["a", "b"], "처음 보면 전부 새 알림");
 
-  // 같은 key를 다시 넣으면 "새로운 것"으로 잡히면 안 됨
-  const second = await db.filterNewIncidentKeys(d1, ["a", "b", "c"]);
+  // 계속 정체 중인 구간(a, b)은 다시 알리면 안 되고, 새로 생긴 c만 알림
+  const second = await db.syncActiveIncidents(d1, ["a", "b", "c"]);
   assert.deepEqual(second, ["c"]);
 
-  console.log("  db.ts: 돌발상황 중복 알림 방지(filterNewIncidentKeys) OK");
+  // b가 정체에서 풀리면(현재 목록에서 빠지면) 기록에서도 지워져야 함
+  const third = await db.syncActiveIncidents(d1, ["a"]);
+  assert.deepEqual(third, [], "여전히 정체 중인 a는 다시 알리면 안 됨");
+
+  // b가 다시 정체되면 이번엔 새 알림으로 잡혀야 함 (풀렸던 기록이 지워졌으므로)
+  const fourth = await db.syncActiveIncidents(d1, ["a", "b"]);
+  assert.deepEqual(fourth, ["b"]);
+
+  console.log("  db.ts: 정체 구간 상태 동기화(syncActiveIncidents) — 시작/유지/해제/재발생 OK");
 }
 
 await testCrud();
 await testSettings();
 await testTrafficSettings();
-await testSeenIncidents();
+await testSyncActiveIncidents();
 console.log("db.ts 전부 통과 ✅");

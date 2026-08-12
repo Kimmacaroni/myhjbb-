@@ -1,7 +1,7 @@
 /**
  * wrangler.toml의 cron 설정대로 실행되는 자동 전송 두 가지:
  * - sendDailyMenu: 매일 정해진 시각에 식단표 전송 (GitHub Actions 워크플로 대체)
- * - sendTrafficAlerts: 5분마다 고속도로 돌발상황 중 새로 생긴 것만 전송
+ * - sendTrafficAlerts: 5분마다 고속도로 정체 구간 중 새로 정체가 시작된 곳만 전송
  *
  * ⚠️ Cloudflare Workers 무료 요금제는 호출 1회당 하위 요청 50개 제한이
  * 있습니다. 채널을 설정한 서버가 많으면(대략 45개 이상) 이 한도에 걸려
@@ -16,7 +16,6 @@ import { fetchIncidents, makeIncidentEmbed } from "./traffic-source";
 import type { Env } from "./types";
 
 const MAX_EMBEDS = 10; // 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
-const SEEN_INCIDENT_TTL_MS = 24 * 60 * 60 * 1000; // 24시간
 
 export async function sendDailyMenu(env: Env): Promise<void> {
   const targets = await db.allMenuChannels(env.DB);
@@ -42,7 +41,7 @@ export async function sendDailyMenu(env: Env): Promise<void> {
   }
 }
 
-/** 새로 생긴 고속도로 돌발상황만 골라 설정된 모든 채널에 알립니다. */
+/** 새로 정체가 시작된 구간만 골라 설정된 모든 채널에 알립니다. */
 export async function sendTrafficAlerts(env: Env): Promise<void> {
   if (!env.HIGHWAY_API_KEY) return; // 키 미설정 시 조용히 건너뜁니다 (cron은 계속 돕니다)
 
@@ -56,9 +55,11 @@ export async function sendTrafficAlerts(env: Env): Promise<void> {
     console.error("교통정보 조회 실패", err);
     return;
   }
-  if (incidents.length === 0) return;
 
-  const newKeys = new Set(await db.filterNewIncidentKeys(env.DB, incidents.map((i) => i.key)));
+  // 정체가 하나도 없어도(빈 배열) 반드시 호출해야 합니다 — 그래야 이전에
+  // 정체였다가 지금은 풀린 구간이 기록에서 지워지고, 나중에 다시
+  // 정체되면 새 알림으로 잡힙니다.
+  const newKeys = new Set(await db.syncActiveIncidents(env.DB, incidents.map((i) => i.key)));
   if (newKeys.size === 0) return;
 
   const embeds = incidents.filter((i) => newKeys.has(i.key)).slice(0, MAX_EMBEDS).map(makeIncidentEmbed);
@@ -69,6 +70,4 @@ export async function sendTrafficAlerts(env: Env): Promise<void> {
       console.error(`교통정보 알림 실패 (guild ${guildId}, channel ${channelId})`, err);
     }
   }
-
-  await db.pruneSeenIncidents(env.DB, SEEN_INCIDENT_TTL_MS);
 }

@@ -112,8 +112,8 @@ console.log("scheduled.ts (식단) 전부 통과 ✅");
 // ── 교통정보(sendTrafficAlerts) ────────────────────────
 
 const HIGHWAY_URL_PREFIX = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest";
-const INCIDENT_A = { key: "a", msg: "경부선 사고", roadName: "경부선" };
-const INCIDENT_B = { key: "b", msg: "서해안선 공사", roadName: "서해안선" };
+const INCIDENT_A = { routeNo: "a", conzoneId: "a", routeName: "경부선", conzoneName: "A구간", grade: "3" };
+const INCIDENT_B = { routeNo: "b", conzoneId: "b", routeName: "서해안선", conzoneName: "B구간", grade: "3" };
 
 function stubTrafficFetch({ incidents = [INCIDENT_A], failChannels = [] } = {}) {
   const calls = [];
@@ -164,7 +164,7 @@ async function testTrafficBroadcastsToAllGuildsAndDedupes() {
   assert.deepEqual(
     calls1.filter((c) => c.kind === "send").map((c) => c.channelId).sort(),
     ["c1", "c2"],
-    "새 돌발상황은 설정된 모든 서버에 알려야 함",
+    "새 정체는 설정된 모든 서버에 알려야 함",
   );
 
   // 같은 상황(a)이 그대로 있는 다음 폴링 — 다시 알리면 안 됨
@@ -177,7 +177,17 @@ async function testTrafficBroadcastsToAllGuildsAndDedupes() {
   await scheduled.sendTrafficAlerts(env);
   assert.equal(calls3.filter((c) => c.kind === "send").length, 2, "새로 생긴 상황(b)만 두 서버에 알려야 함");
 
-  console.log("  sendTrafficAlerts: 모든 서버 알림 + 이미 알린 상황 중복 방지 OK");
+  // a가 정체에서 풀리면(응답에서 사라지면) 알림 없이 조용히 기록만 정리
+  const calls4 = stubTrafficFetch({ incidents: [INCIDENT_B] });
+  await scheduled.sendTrafficAlerts(env);
+  assert.equal(calls4.filter((c) => c.kind === "send").length, 0, "정체가 풀린 것 자체는 알림 대상이 아님");
+
+  // a가 다시 정체되면 새 알림으로 잡혀야 함 (풀렸던 기록이 지워졌으므로)
+  const calls5 = stubTrafficFetch({ incidents: [INCIDENT_A, INCIDENT_B] });
+  await scheduled.sendTrafficAlerts(env);
+  assert.equal(calls5.filter((c) => c.kind === "send").length, 2, "재발생한 정체(a)는 다시 새 알림으로 잡혀야 함");
+
+  console.log("  sendTrafficAlerts: 모든 서버 알림 + 정체 유지 중복 방지 + 해제/재발생 감지 OK");
 }
 
 async function testTrafficOneChannelFailureDoesNotBlockOthers() {

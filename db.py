@@ -243,7 +243,7 @@ def all_menu_channels() -> dict[int, int]:
 
 
 def set_traffic_channel(guild_id: int, channel_id: int | None) -> None:
-    """고속도로 돌발상황을 알릴 채널을 지정합니다. None이면 자동 알림을 끕니다."""
+    """고속도로 정체 구간을 알릴 채널을 지정합니다. None이면 자동 알림을 끕니다."""
     with _tx() as conn:
         conn.execute(
             """INSERT INTO guild_settings (guild_id, traffic_channel_id) VALUES (?, ?)
@@ -271,25 +271,34 @@ def all_traffic_channels() -> dict[int, int]:
     return {row["guild_id"]: row["traffic_channel_id"] for row in rows}
 
 
-# ── 교통정보 돌발상황 중복 알림 방지 ──────────────────
+# ── 교통정보(정체 구간) 중복 알림 방지 ────────────────
 
-def filter_new_incident_keys(keys: list[str]) -> list[str]:
-    """이번에 받아온 돌발상황 key들 중 처음 보는 것만 기록하고 그 목록을 돌려줍니다."""
+def sync_active_incidents(current_keys: list[str]) -> list[str]:
+    """"지금 심한 정체인 구간" 목록을 이전 폴링 때의 목록과 비교해, 새로 정체가
+    시작된 구간만 알림 대상으로 돌려줍니다. 정체가 계속되는 구간은 매번 다시
+    알리지 않고(테이블에 그대로 남아있음), 정체가 풀린 구간은 테이블에서
+    지워서 나중에 다시 정체되면 새 알림으로 잡히게 합니다.
+
+    (사고처럼 한 번 발생하면 끝나는 "이벤트"가 아니라, 정체처럼 몇 분 넘게
+    계속될 수 있는 "상태"라 값이 아니라 상태 변화를 감지해야 합니다.)
+    """
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    fresh = []
+    current = set(current_keys)
+
     with _tx() as conn:
-        for key in keys:
-            cur = conn.execute(
+        previous = {
+            row["incident_key"]
+            for row in conn.execute("SELECT incident_key FROM traffic_seen_incidents")
+        }
+        fresh = [key for key in current_keys if key not in previous]
+        cleared = previous - current
+
+        for key in fresh:
+            conn.execute(
                 "INSERT OR IGNORE INTO traffic_seen_incidents (incident_key, seen_at) VALUES (?, ?)",
                 (key, now),
             )
-            if cur.rowcount > 0:
-                fresh.append(key)
+        for key in cleared:
+            conn.execute("DELETE FROM traffic_seen_incidents WHERE incident_key = ?", (key,))
+
     return fresh
-
-
-def prune_seen_incidents(older_than: datetime.timedelta) -> None:
-    """오래된 기록은 지워서 테이블이 무한히 커지지 않게 합니다."""
-    cutoff = (datetime.datetime.now(datetime.timezone.utc) - older_than).isoformat()
-    with _tx() as conn:
-        conn.execute("DELETE FROM traffic_seen_incidents WHERE seen_at < ?", (cutoff,))

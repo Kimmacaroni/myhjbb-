@@ -201,28 +201,37 @@ export async function allTrafficChannels(db: D1Database): Promise<{ guildId: str
   return results.map((r) => ({ guildId: r.guild_id, channelId: r.traffic_channel_id }));
 }
 
-// ── 교통정보 돌발상황 중복 알림 방지 ──────────────────
+// ── 교통정보(정체 구간) 중복 알림 방지 ────────────────
 
 /**
- * 이번에 받아온 돌발상황 key들 중 "처음 보는" 것만 기록하고 그 목록을
- * 돌려줍니다. INSERT OR IGNORE + changes 개수로 판단하기 때문에, 이미 본
- * key는 자동으로 걸러지고 별도 SELECT가 필요 없습니다.
+ * "지금 심한 정체인 구간" 목록을 이전 폴링 때의 목록과 비교해, 새로 정체가
+ * 시작된 구간만 알림 대상으로 돌려줍니다. 정체가 계속되는 구간은 매번
+ * 다시 알리지 않고(테이블에 그대로 남아있음), 정체가 풀린 구간은 테이블에서
+ * 지워서 나중에 다시 정체되면 새 알림으로 잡히게 합니다.
+ *
+ * (사고처럼 한 번 발생하면 끝나는 "이벤트"가 아니라, 정체처럼 몇 분 넘게
+ * 계속될 수 있는 "상태"라 값이 아니라 상태 변화를 감지해야 합니다.)
  */
-export async function filterNewIncidentKeys(db: D1Database, keys: string[]): Promise<string[]> {
+export async function syncActiveIncidents(db: D1Database, currentKeys: string[]): Promise<string[]> {
+  const { results } = await db
+    .prepare(`SELECT incident_key FROM traffic_seen_incidents`)
+    .all<{ incident_key: string }>();
+  const previous = new Set(results.map((r) => r.incident_key));
+  const current = new Set(currentKeys);
+
+  const fresh = currentKeys.filter((key) => !previous.has(key));
+  const cleared = [...previous].filter((key) => !current.has(key));
+
   const now = new Date().toISOString();
-  const fresh: string[] = [];
-  for (const key of keys) {
-    const res = await db
+  for (const key of fresh) {
+    await db
       .prepare(`INSERT OR IGNORE INTO traffic_seen_incidents (incident_key, seen_at) VALUES (?, ?)`)
       .bind(key, now)
       .run();
-    if (res.meta.changes > 0) fresh.push(key);
   }
-  return fresh;
-}
+  for (const key of cleared) {
+    await db.prepare(`DELETE FROM traffic_seen_incidents WHERE incident_key = ?`).bind(key).run();
+  }
 
-/** 오래된 기록은 지워서 테이블이 무한히 커지지 않게 합니다. */
-export async function pruneSeenIncidents(db: D1Database, olderThanMs: number): Promise<void> {
-  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
-  await db.prepare(`DELETE FROM traffic_seen_incidents WHERE seen_at < ?`).bind(cutoff).run();
+  return fresh;
 }
