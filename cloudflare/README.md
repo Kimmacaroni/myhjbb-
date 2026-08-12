@@ -186,12 +186,14 @@ Cloudflare Workers 무료 요금제는 호출 1회당 하위 요청(fetch 호출
 응답 필드(`stdDate`, `stdHour`, `vdsId`, `trafficAmout`, `speed`,
 `shareRatio`, `timeAvg`, `grade`, `routeNo`, `routeName`,
 `updownTypeCode`, `conzoneId`, `conzoneName`, `code`, `message`,
-`count`)는 공식 문서로 확인했지만, **`grade`가 정체를 어떤 값으로
-표시하는지(숫자 코드 `"3"`인지 `"정체"` 같은 텍스트인지)는 아직
-실제 응답으로 확인되지 않았습니다** — `src/traffic-source.ts`의
-`isSevereCongestion()`이 숫자 `"3"`과 텍스트 안에 "정체"가 포함된 경우를
-모두 심한 정체로 인식하도록 방어적으로 짜 놨지만, 실제 값이 다르면 이
-함수만 고치면 됩니다.
+`count`)와 실제 값은 두 번 받아본 원본 응답으로 확인했습니다. **응답에
+있는 항목은 모두 grade가 `"3"`으로 동일**했습니다 — 이름
+(`...ByCongest`) 그대로 이 API 자체가 이미 정체로 분류된 구간만 돌려주는
+것으로 보여서, grade로 다시 거르지 않고 응답에 있는 구간을 그대로 알림
+대상으로 씁니다. 대신 같은 구간(conzone)에 VDS 센서가 여러 개 잡혀
+항목이 중복으로 오므로, 구간당 속도가 가장 낮은 값 하나만 남깁니다
+(`src/traffic-source.ts`의 `parseIncidents()`, `traffic_source.py`의
+`parse_incidents()`).
 
 `HIGHWAY_API_KEY` secret을 등록한 뒤 아래 주소를 열면 실제 원본 JSON을
 확인할 수 있습니다 (`/setup/debug-menu`가 등록된 `HIGHWAY_API_KEY`로 서버
@@ -202,7 +204,6 @@ Cloudflare Workers 무료 요금제는 호출 1회당 하위 요청(fetch 호출
 https://honorary-bot.<subdomain>.workers.dev/setup/debug-menu?token=<SETUP_TOKEN>&target=traffic
 ```
 
-grade 값을 확인한 뒤 `src/traffic-source.ts`의 `isSevereCongestion()`과
-`traffic_source.py`의 `_is_severe_congestion()`만 실제 값에 맞게 고치면
-됩니다 — 나머지 로직(정체 시작/해제 감지, 채널 알림, 명령어)은 그대로
-재사용됩니다.
+응답에 있는 구간이 10개를 넘으면(정체가 몰리는 시간대, 기능을 처음 켰을
+때 등) 디스코드 메시지 하나(임베드 최대 10개)로는 다 못 담아서, 여러
+메시지로 나눠 전부 보냅니다 — 뒤쪽 구간이 조용히 누락되지 않습니다.

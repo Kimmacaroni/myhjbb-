@@ -4,13 +4,19 @@
  * 이유입니다.
  */
 import * as db from "../db";
-import { sendChannelMessage, editOriginalResponse, DiscordRestError, EPHEMERAL } from "../discord";
+import { sendChannelMessage, editOriginalResponse, createFollowupMessage, DiscordRestError, EPHEMERAL } from "../discord";
 import { requirePermission, PERMISSIONS } from "../permissions";
 import { fetchIncidents, makeIncidentEmbed } from "../traffic-source";
 import type { Env, Interaction, InteractionResponse } from "../types";
 import { getOption } from "../interactions";
 
 const MAX_EMBEDS = 10; // 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
 
 /** 3초 안에 못 끝낼 수 있는 작업이라 index.ts가 먼저 "생각 중" 응답을 보낸 뒤 이 함수로 마무리합니다. */
 export async function performTrafficNow(env: Env, interaction: Interaction): Promise<void> {
@@ -29,9 +35,18 @@ export async function performTrafficNow(env: Env, interaction: Interaction): Pro
       });
       return;
     }
+
+    // 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 구간이 많으면
+    // 첫 응답 편집 이후 나머지는 후속 메시지(followup)로 나눠 보냅니다.
+    const [first, ...rest] = chunk(incidents, MAX_EMBEDS);
     await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, {
-      embeds: incidents.slice(0, MAX_EMBEDS).map(makeIncidentEmbed),
+      embeds: first.map(makeIncidentEmbed),
     });
+    for (const group of rest) {
+      await createFollowupMessage(env.DISCORD_APPLICATION_ID, interaction.token, {
+        embeds: group.map(makeIncidentEmbed),
+      });
+    }
   } catch (err) {
     await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, {
       content: `❌ 교통정보를 불러오지 못했습니다: ${(err as Error).message}`,

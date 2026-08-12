@@ -132,6 +132,46 @@ async function testPerformTrafficNowReportsNoIncidents() {
   console.log("  /교통정보: 심한 정체 없음 → 안내 메시지 OK");
 }
 
+async function testPerformTrafficNowChunksMoreThan10() {
+  const env = fakeEnv({ HIGHWAY_API_KEY: "test-key" });
+  const interaction = { token: "tok", application_id: "app" };
+
+  const many = Array.from({ length: 13 }, (_, i) => ({
+    routeNo: `r${i}`,
+    conzoneId: `c${i}`,
+    routeName: "경부선",
+    conzoneName: `${i}구간`,
+    grade: "3",
+  }));
+
+  const sends = [];
+  globalThis.fetch = async (url, init) => {
+    const u = new URL(url.toString());
+    if (u.hostname === "data.ex.co.kr") {
+      return new Response(JSON.stringify({ list: many }), { status: 200 });
+    }
+    if (u.pathname.endsWith("/messages/@original") && init.method === "PATCH") {
+      sends.push({ kind: "edit", embedCount: JSON.parse(init.body).embeds.length });
+      return new Response("{}", { status: 200 });
+    }
+    if (u.pathname.includes("/webhooks/") && init.method === "POST") {
+      sends.push({ kind: "followup", embedCount: JSON.parse(init.body).embeds.length });
+      return new Response("{}", { status: 200 });
+    }
+    throw new Error("예상치 못한 요청: " + u);
+  };
+
+  await traffic.performTrafficNow(env, interaction);
+
+  assert.equal(sends.length, 2, "13개면 응답 편집 1번 + 후속 메시지 1번, 총 2번 보내야 함");
+  assert.equal(sends[0].kind, "edit");
+  assert.equal(sends[0].embedCount, 10);
+  assert.equal(sends[1].kind, "followup");
+  assert.equal(sends[1].embedCount, 3, "뒤쪽 구간이 조용히 누락되면 안 됨");
+
+  console.log("  /교통정보: 임베드 10개 초과 시 편집 응답 + 후속 메시지로 나눠 전부 전송 OK");
+}
+
 await testSetChannelSuccessProbesBeforeSaving();
 await testSetChannelFailureDoesNotSave();
 await testSetChannelPermissionDenied();
@@ -139,4 +179,5 @@ await testUnsetChannel();
 await testShowSettingsReflectsState();
 await testPerformTrafficNowWithoutApiKey();
 await testPerformTrafficNowReportsNoIncidents();
+await testPerformTrafficNowChunksMoreThan10();
 console.log("traffic.ts 명령어 전부 통과 ✅");

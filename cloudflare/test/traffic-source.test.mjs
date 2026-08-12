@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import * as traffic from "./.bundled-traffic-source.mjs";
 
+// 실제 API 응답을 흉내낸 샘플: 같은 구간(conzoneId)에 VDS 센서가 여러 개
+// 잡혀 항목이 중복으로 옵니다. grade는 실제 응답에서 전부 "3"이었습니다.
 const SAMPLE_LIST = {
   list: [
     {
@@ -9,56 +11,59 @@ const SAMPLE_LIST = {
       conzoneId: "C001",
       conzoneName: "신탄진~회덕",
       updownTypeCode: "S",
-      speed: "12",
-      grade: "3", // 심한 정체 (숫자 코드 가정)
+      speed: "28",
+      grade: "3",
     },
     {
-      routeNo: "0015",
-      routeName: "서해안선",
-      conzoneId: "C002",
-      conzoneName: "서서울~안산",
-      updownTypeCode: "E",
-      speed: "95",
-      grade: "1", // 원활 — 알림 대상 아님
+      // 같은 구간(C001), 다른 VDS 센서 — 속도가 더 낮음(더 심함)
+      routeNo: "0010",
+      routeName: "경부선",
+      conzoneId: "C001",
+      conzoneName: "신탄진~회덕",
+      updownTypeCode: "S",
+      speed: "12",
+      grade: "3",
     },
     {
       routeNo: "0025",
       routeName: "호남선",
       conzoneId: "C003",
       conzoneName: "정읍~장성",
-      updownTypeCode: "S",
+      updownTypeCode: "E",
       speed: "20",
-      grade: "정체", // 심한 정체 (텍스트 코드 가정)
+      grade: "3",
     },
   ],
 };
 
-function testParseIncidentsKeepsOnlySevereCongestion() {
+function testParseIncidentsMergesDuplicateSensorsKeepingWorstSpeed() {
   const incidents = traffic.parseIncidents(SAMPLE_LIST);
-  assert.equal(incidents.length, 2, "grade가 정체가 아닌 항목은 제외되어야 함");
+  assert.equal(incidents.length, 2, "같은 구간(C001)의 중복 센서 값은 하나로 합쳐져야 함");
 
-  assert.equal(incidents[0].key, "0010|C001|S");
-  assert.match(incidents[0].message, /경부선/);
-  assert.match(incidents[0].message, /신탄진~회덕/);
-  assert.match(incidents[0].message, /12km\/h/);
-  assert.equal(incidents[0].roadName, "경부선");
-  assert.equal(incidents[0].kind, "정체");
-  assert.equal(incidents[0].startName, "신탄진~회덕");
+  const segmentC001 = incidents.find((i) => i.key === "0010|C001|S");
+  assert.ok(segmentC001, "구간 키는 routeNo|conzoneId|updownTypeCode 조합이어야 함");
+  assert.match(segmentC001.message, /경부선/);
+  assert.match(segmentC001.message, /신탄진~회덕/);
+  assert.match(segmentC001.message, /12km\/h/, "여러 센서 중 속도가 가장 낮은(가장 심한) 값을 남겨야 함");
+  assert.ok(!segmentC001.message.includes("28km/h"));
+  assert.equal(segmentC001.roadName, "경부선");
+  assert.equal(segmentC001.kind, "정체");
+  assert.equal(segmentC001.startName, "신탄진~회덕");
 
-  assert.equal(incidents[1].key, "0025|C003|S");
-  assert.match(incidents[1].message, /호남선/);
+  const segmentC003 = incidents.find((i) => i.key === "0025|C003|E");
+  assert.ok(segmentC003);
+  assert.match(segmentC003.message, /호남선/);
 
-  console.log("  parseIncidents: grade 숫자('3')/텍스트('정체') 코드 모두 심한 정체로 인식 + 나머지 제외 OK");
+  console.log("  parseIncidents: 같은 구간 중복 센서 → 가장 심한 속도로 병합 OK");
 }
 
 function testParseIncidentsHandlesUnexpectedShape() {
   assert.deepEqual(traffic.parseIncidents(null), []);
   assert.deepEqual(traffic.parseIncidents({}), []);
   assert.deepEqual(traffic.parseIncidents({ list: "이상한 형태" }), []);
-  // grade가 없거나 원활이면 조용히 건너뜀
-  assert.deepEqual(traffic.parseIncidents({ list: [{ routeNo: "1", conzoneId: "c" }] }), []);
-  assert.deepEqual(traffic.parseIncidents({ list: [{ routeNo: "1", conzoneId: "c", grade: "1" }] }), []);
-  console.log("  parseIncidents: 예상과 다른 응답 형태/비정체 항목 → 죽지 않고 빈 배열 OK");
+  // 구간을 특정할 키가 없는 항목은 조용히 건너뜀
+  assert.deepEqual(traffic.parseIncidents({ list: [{ speed: "10" }] }), []);
+  console.log("  parseIncidents: 예상과 다른 응답 형태/키 없는 항목 → 죽지 않고 빈 배열 OK");
 }
 
 function testMakeIncidentEmbed() {
@@ -112,7 +117,7 @@ async function testFetchIncidentsPrefersGivenFetcher() {
   console.log("  fetchIncidents: 넘겨준 fetcher(Service Binding 등) 사용 OK");
 }
 
-testParseIncidentsKeepsOnlySevereCongestion();
+testParseIncidentsMergesDuplicateSensorsKeepingWorstSpeed();
 testParseIncidentsHandlesUnexpectedShape();
 testMakeIncidentEmbed();
 await testFetchIncidentsSendsKeyAndType();

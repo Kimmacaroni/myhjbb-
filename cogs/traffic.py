@@ -23,6 +23,10 @@ log = logging.getLogger(__name__)
 MAX_EMBEDS = 10  # 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
 
 
+def _chunk(items: list, size: int) -> list[list]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
 @app_commands.guild_only()
 class Traffic(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -79,19 +83,22 @@ class Traffic(commands.Cog):
         if not new_keys:
             return
 
-        embeds = [
-            traffic_source.make_incident_embed(i)
-            for i in incidents
-            if i["key"] in new_keys
-        ][:MAX_EMBEDS]
+        fresh = [i for i in incidents if i["key"] in new_keys]
+        embed_groups = _chunk([traffic_source.make_incident_embed(i) for i in fresh], MAX_EMBEDS)
 
+        # 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 한 번에
+        # 새로 정체가 시작된 구간이 많으면 여러 메시지로 나눠서 전부
+        # 보냅니다 — 뒤쪽 구간이 조용히 누락되면 안 됩니다.
         for channel in channels:
-            try:
-                await channel.send(embeds=embeds)
-            except discord.Forbidden:
-                log.warning("%s 채널에 메시지를 보낼 권한이 없습니다.", channel.id)
-            except discord.HTTPException:
-                log.exception("교통정보 알림 실패 (채널: %s)", channel.id)
+            for embeds in embed_groups:
+                try:
+                    await channel.send(embeds=embeds)
+                except discord.Forbidden:
+                    log.warning("%s 채널에 메시지를 보낼 권한이 없습니다.", channel.id)
+                    break
+                except discord.HTTPException:
+                    log.exception("교통정보 알림 실패 (채널: %s)", channel.id)
+                    break
 
     @poll_traffic.before_loop
     async def before_poll_traffic(self):
@@ -128,8 +135,10 @@ class Traffic(commands.Cog):
             await interaction.followup.send("✅ 현재 심한 정체 구간이 없습니다.")
             return
 
-        embeds = [traffic_source.make_incident_embed(i) for i in incidents[:MAX_EMBEDS]]
-        await interaction.followup.send(embeds=embeds)
+        # 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 구간이
+        # 많으면 여러 메시지로 나눠서 전부 보냅니다.
+        for embeds in _chunk([traffic_source.make_incident_embed(i) for i in incidents], MAX_EMBEDS):
+            await interaction.followup.send(embeds=embeds)
 
     @app_commands.command(
         name="교통정보채널설정", description="고속도로 정체 구간을 자동으로 알릴 채널을 지정합니다."

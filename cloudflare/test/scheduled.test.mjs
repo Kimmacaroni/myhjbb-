@@ -125,7 +125,8 @@ function stubTrafficFetch({ incidents = [INCIDENT_A], failChannels = [] } = {}) 
     }
     const m = u.match(/\/channels\/([^/]+)\/messages$/);
     if (m) {
-      calls.push({ kind: "send", channelId: m[1] });
+      const embedCount = init?.body ? JSON.parse(init.body).embeds.length : 0;
+      calls.push({ kind: "send", channelId: m[1], embedCount });
       if (failChannels.includes(m[1])) return new Response("금지됨", { status: 403 });
       return new Response("{}", { status: 200 });
     }
@@ -203,6 +204,30 @@ async function testTrafficOneChannelFailureDoesNotBlockOthers() {
   console.log("  sendTrafficAlerts: 한 채널 실패해도 나머지는 계속 전송 OK");
 }
 
+async function testTrafficChunksMoreThan10IntoMultipleMessages() {
+  const env = fakeEnv();
+  env.HIGHWAY_API_KEY = "test-key";
+  await db.setTrafficChannel(env.DB, "g1", "c1");
+
+  // 디스코드 임베드 상한(10개)을 넘는 13개 구간이 한 번에 새로 잡히는 경우
+  const many = Array.from({ length: 13 }, (_, i) => ({
+    routeNo: `r${i}`,
+    conzoneId: `c${i}`,
+    routeName: "경부선",
+    conzoneName: `${i}구간`,
+    grade: "3",
+  }));
+  const calls = stubTrafficFetch({ incidents: many });
+
+  await scheduled.sendTrafficAlerts(env);
+
+  const sends = calls.filter((c) => c.kind === "send");
+  assert.equal(sends.length, 2, "13개면 메시지 2개(10+3)로 나뉘어 보내져야 함");
+  assert.deepEqual(sends.map((c) => c.embedCount).sort((a, b) => a - b), [3, 10], "뒤쪽 구간이 조용히 누락되면 안 됨");
+
+  console.log("  sendTrafficAlerts: 임베드 10개 초과 시 여러 메시지로 나눠 전부 전송 OK");
+}
+
 async function testTrafficApiFailureDoesNotThrow() {
   const env = fakeEnv();
   env.HIGHWAY_API_KEY = "test-key";
@@ -219,5 +244,6 @@ await testTrafficNoOpWithoutApiKey();
 await testTrafficNoOpWithoutTargets();
 await testTrafficBroadcastsToAllGuildsAndDedupes();
 await testTrafficOneChannelFailureDoesNotBlockOthers();
+await testTrafficChunksMoreThan10IntoMultipleMessages();
 await testTrafficApiFailureDoesNotThrow();
 console.log("scheduled.ts (교통정보) 전부 통과 ✅");
