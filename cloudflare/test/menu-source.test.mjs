@@ -71,9 +71,32 @@ async function testFetchMenuHandlesErrors() {
   console.log("  fetchMenu: 오늘 끼니가 비어 있으면 예외 OK");
 }
 
+async function testFetchMenuPrefersServiceBinding() {
+  globalThis.fetch = async () => {
+    throw new Error("Service Binding이 주어지면 전역 fetch를 쓰면 안 됩니다 (계정 내 Worker 간 fetch는 404남)");
+  };
+  let called = false;
+  const fakeBinding = {
+    fetch: async (url, init) => {
+      called = true;
+      assert.equal(url.toString(), DAEWON_API_URL);
+      assert.equal(init.method, "POST");
+      return new Response(
+        JSON.stringify({ today: { meals: [{ type: "조식", items: ["쌀밥"] }] } }),
+        { status: 200 },
+      );
+    },
+  };
+  const text = await menu.fetchMenu(fakeBinding);
+  assert.ok(called, "넘겨준 바인딩의 fetch가 호출되어야 함");
+  assert.ok(text.includes("쌀밥"));
+  console.log("  fetchMenu: Service Binding(Fetcher)이 있으면 그걸 우선 사용 + 전역 fetch 미사용 OK");
+}
+
 testKstDateString();
 testFormatMealsText();
 testMakeMenuEmbed();
 await testFetchMenuSuccess();
 await testFetchMenuHandlesErrors();
+await testFetchMenuPrefersServiceBinding();
 console.log("menu-source.ts 전부 통과 ✅");

@@ -75,8 +75,8 @@ async function handleRegisterCommands(request: Request, env: Env): Promise<Respo
  * 엔드포인트입니다. 개발 환경은 여러 외부 사이트로 나가는 네트워크가 막혀
  * 있어 직접 확인할 수 없으므로, 실제 봇과 같은 네트워크 경로로 대신
  * 가져옵니다. `url` 파라미터를 생략하면 식단 API 주소(DAEWON_API_URL)를
- * fetchMenu()와 똑같이 POST로 조회합니다. 다 쓰신 뒤에는 SETUP_TOKEN
- * secret을 지워서 잠가 두셔도 됩니다.
+ * fetchMenu()와 똑같은 방식(가능하면 Service Binding)으로 POST 조회합니다.
+ * 다 쓰신 뒤에는 SETUP_TOKEN secret을 지워서 잠가 두셔도 됩니다.
  */
 async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
   const params = new URL(request.url).searchParams;
@@ -97,14 +97,18 @@ async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
   }
 
   const isDaewonApi = target === DAEWON_API_URL;
-  const res = await fetch(
+  const fetcher = isDaewonApi && env.DAEWON_API ? env.DAEWON_API : { fetch };
+  const bindingNote = isDaewonApi
+    ? `[Service Binding: ${env.DAEWON_API ? "사용함" : "설정 안 됨 — 계정 내 Worker 간 요청은 fetch()로 안 되어 아래도 404가 뜰 수 있습니다"}]\n\n`
+    : "";
+  const res = await fetcher.fetch(
     targetUrl.toString(),
     isDaewonApi
       ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "foodmenu" }) }
       : { headers: { "User-Agent": "Mozilla/5.0" } },
   );
   const body = await res.text();
-  return new Response(`HTTP ${res.status} ${res.statusText}\n\n${body}`, {
+  return new Response(`${bindingNote}HTTP ${res.status} ${res.statusText}\n\n${body}`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }

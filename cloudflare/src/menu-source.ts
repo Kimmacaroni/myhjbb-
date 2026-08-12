@@ -6,6 +6,12 @@
  * 배차확인 앱의 Worker API(daewon-dispatch)를 호출합니다 — 소유자 확인 후
  * 재사용을 허락받았습니다. 일반 fetch + JSON이라 Node에서도 그대로
  * 테스트할 수 있습니다 (더는 Workers 전용 HTMLRewriter가 필요 없습니다).
+ *
+ * ⚠️ 같은 Cloudflare 계정 안의 *.workers.dev Worker끼리는 무한 루프 방지를
+ * 위해 일반 fetch()로 서로를 호출할 수 없습니다(HTTP 404, cf-ray 오류 코드
+ * 1042). 그래서 fetchMenu()는 Service Binding(Fetcher)을 우선 쓰고, 로컬
+ * 테스트나 바인딩이 아직 없는 환경에서는 전역 fetch로 자연스럽게
+ * 대체됩니다.
  */
 
 export const DAEWON_API_URL = "https://daewon-dispatch.kcy990830.workers.dev";
@@ -64,9 +70,15 @@ export function makeMenuEmbed(menuText: string, now: Date = new Date()) {
   };
 }
 
-/** daewon-dispatch Worker의 오늘 식단 정보를 받아 텍스트로 정리합니다. */
-export async function fetchMenu(): Promise<string> {
-  const response = await fetch(DAEWON_API_URL, {
+/**
+ * daewon-dispatch Worker의 오늘 식단 정보를 받아 텍스트로 정리합니다.
+ *
+ * @param fetcher Service Binding(env.DAEWON_API) 또는 테스트용 fetch 대체.
+ *   생략하면 전역 fetch를 씁니다 — 실제 배포 환경에서는 반드시 Service
+ *   Binding을 넘겨야 계정 내 Worker 간 fetch 제한(오류 1042)을 피합니다.
+ */
+export async function fetchMenu(fetcher: { fetch: typeof fetch } = { fetch }): Promise<string> {
+  const response = await fetcher.fetch(DAEWON_API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "foodmenu" }),

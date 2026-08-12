@@ -11,6 +11,17 @@ binding = "DB"
 database_name = "honorary-bot"
 database_id = "eeecdf40-793e-4c55-ac0a-695552fa4bc9"
 
+# 식단 정보를 받아오는 daewon-dispatch Worker로의 Service Binding.
+# 같은 Cloudflare 계정 안의 *.workers.dev Worker끼리는 무한 루프 방지를
+# 위해 일반 fetch()로 서로를 호출할 수 없어(HTTP 404, 오류 코드 1042)
+# Service Binding이 꼭 필요합니다. Git 연동 배포(Workers Builds)는
+# wrangler.toml의 바인딩을 자동 반영하지 않을 수 있으니, 대시보드
+# Settings → Variables and Bindings 에서도 수동으로 추가해 주세요
+# (Type: Service, Variable name: DAEWON_API, Service: daewon-dispatch).
+[[services]]
+binding = "DAEWON_API"
+service = "daewon-dispatch"
+
 # 아래 값들은 파일에 적지 않고 secret 으로 등록합니다. (배포 가이드 참고)
 #   wrangler secret put DISCORD_TOKEN
 #   wrangler secret put DISCORD_PUBLIC_KEY

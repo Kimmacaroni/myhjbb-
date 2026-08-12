@@ -78,8 +78,34 @@ async function testCrawlFailureAbortsWithoutSending() {
   console.log("  식단 조회 실패 → 전송 자체를 생략 OK");
 }
 
+async function testUsesServiceBindingWhenAvailable() {
+  const env = fakeEnv();
+  await db.setMenuChannel(env.DB, "g1", "c1");
+  globalThis.fetch = async () => {
+    throw new Error("Service Binding이 있으면 전역 fetch로 식단 API를 부르면 안 됩니다");
+  };
+  let bindingCalled = false;
+  env.DAEWON_API = {
+    fetch: async () => {
+      bindingCalled = true;
+      return new Response(JSON.stringify(FIXTURE_MENU), { status: 200 });
+    },
+  };
+  // /channels/.../messages 전송은 여전히 전역 fetch(디스코드 REST)를 씁니다.
+  globalThis.fetch = async (url) => {
+    const m = url.toString().match(/\/channels\/([^/]+)\/messages$/);
+    if (m) return new Response("{}", { status: 200 });
+    throw new Error(`예상치 못한 전역 fetch 요청: ${url}`);
+  };
+
+  await scheduled.sendDailyMenu(env);
+  assert.ok(bindingCalled, "env.DAEWON_API의 fetch가 호출되어야 함");
+  console.log("  env.DAEWON_API(Service Binding)가 있으면 식단 조회에 그걸 사용 OK");
+}
+
 await testNoTargetsSkipsCrawl();
 await testSendsToAllConfiguredGuilds();
 await testOneChannelFailureDoesNotBlockOthers();
 await testCrawlFailureAbortsWithoutSending();
+await testUsesServiceBindingWhenAvailable();
 console.log("scheduled.ts 전부 통과 ✅");

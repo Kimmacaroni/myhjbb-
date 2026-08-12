@@ -60,6 +60,36 @@ npx wrangler secret put DISCORD_PUBLIC_KEY
 npx wrangler secret put DISCORD_APPLICATION_ID
 ```
 
+## 3.5) daewon-dispatch Service Binding 연결
+
+`/식단`은 같은 계정에 있는 `daewon-dispatch` Worker의 식단 API를 호출합니다.
+그런데 Cloudflare는 **같은 계정 안의 `*.workers.dev` Worker끼리 일반
+`fetch()`로 서로 호출하는 것을 막습니다** (무한 루프 방지 — 시도하면
+`HTTP 404`, 오류 코드 `1042`가 뜹니다). 그래서 **Service Binding**이라는
+전용 연결 방식이 꼭 필요합니다.
+
+`wrangler.toml`에 바인딩 설정(`[[services]]`, binding명 `DAEWON_API`,
+대상 `daewon-dispatch`)이 이미 들어 있지만, **Git 연동 배포(Workers
+Builds)는 `wrangler.toml`의 바인딩을 자동으로 반영하지 않을 수 있습니다**
+(cron 트리거도 같은 이유로 대시보드에서 따로 추가해야 했던 적이
+있습니다). 그러니 대시보드에서도 직접 추가해 주세요:
+
+1. Cloudflare 대시보드 → **Workers & Pages** → `honorary-bot` 선택
+2. **Settings** → **Variables and Bindings** (또는 "변수 및 바인딩")
+3. **Add binding** → **Service** 선택
+4. Variable name: `DAEWON_API`, Service: `daewon-dispatch`, Environment:
+   `production` 선택 후 저장
+5. 저장하면 자동으로 재배포되거나, 안 되면 `Deployments` 탭에서 최신
+   배포를 **Retry**/재배포
+
+`npm run deploy`(wrangler CLI)로 직접 배포하는 경우에는 `wrangler.toml`에
+있는 설정이 그대로 반영되므로 이 단계를 건너뛰어도 됩니다.
+
+> 바인딩 없이도 코드는 동작합니다 — 바인딩이 없으면 일반 `fetch()`로
+> 대체하도록 만들어 뒀지만, 그 경우 계정 내 Worker 간 호출 제한 때문에
+> 다시 404가 뜹니다. `/setup/debug-menu` 진단 엔드포인트로 열어보면
+> `[Service Binding: 사용함/설정 안 됨]` 표시로 바로 확인할 수 있습니다.
+
 ## 4) 배포
 
 ```bash

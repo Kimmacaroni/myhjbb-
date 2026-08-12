@@ -223,7 +223,39 @@ async function testDebugMenuRequiresTokenAndReturnsRawBody() {
   const text = await res.text();
   assert.match(text, /HTTP 200 OK/);
   assert.match(text, /"today"/);
+  assert.match(text, /설정 안 됨/, "Service Binding 없이 전역 fetch로 요청했음을 알려줘야 함");
   console.log("  /setup/debug-menu: 정답 토큰 → 실제 API 응답 원문 그대로 반환 OK");
+}
+
+async function testDebugMenuUsesServiceBindingWhenAvailable() {
+  const { publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex);
+  env.SETUP_TOKEN = "correct-token";
+  const { ctx } = fakeCtx();
+
+  globalThis.fetch = async () => {
+    throw new Error("Service Binding이 있으면 전역 fetch를 쓰면 안 됩니다");
+  };
+  let bindingCalled = false;
+  env.DAEWON_API = {
+    fetch: async (url, init) => {
+      bindingCalled = true;
+      assert.ok(url.toString().includes("daewon-dispatch"));
+      assert.equal(init.method, "POST");
+      return new Response('{"today":{"meals":[]}}', { status: 200, statusText: "OK" });
+    },
+  };
+
+  const res = await handleRequest(
+    new Request("https://example.com/setup/debug-menu?token=correct-token"),
+    env,
+    ctx,
+  );
+  assert.equal(res.status, 200);
+  assert.ok(bindingCalled, "env.DAEWON_API의 fetch가 호출되어야 함");
+  const text = await res.text();
+  assert.match(text, /사용함/);
+  console.log("  /setup/debug-menu: Service Binding이 있으면 그걸로 조회 + 전역 fetch 미사용 OK");
 }
 
 async function testDebugMenuAcceptsCustomUrl() {
@@ -349,6 +381,7 @@ async function testRegisterCommandsSucceedsWithCorrectToken() {
 await testRegisterCommandsRequiresToken();
 await testRegisterCommandsSucceedsWithCorrectToken();
 await testDebugMenuRequiresTokenAndReturnsRawBody();
+await testDebugMenuUsesServiceBindingWhenAvailable();
 await testDebugMenuAcceptsCustomUrl();
 await testRejectsNonPost();
 await testRejectsInvalidSignature();
