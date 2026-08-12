@@ -7,6 +7,7 @@ sqlite3는 동기 API지만 이 봇의 쿼리는 전부 인덱스 기반 단건 
 수 밀리초 이내에 끝납니다. 이벤트 루프를 의미 있게 막지 않으므로 별도의
 비동기 드라이버 없이 락으로만 직렬화합니다.
 """
+import datetime
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -41,9 +42,17 @@ CREATE TABLE IF NOT EXISTS titles (
 CREATE INDEX IF NOT EXISTS idx_titles_level ON titles (guild_id, level);
 
 CREATE TABLE IF NOT EXISTS guild_settings (
-    guild_id        INTEGER NOT NULL PRIMARY KEY,
-    menu_channel_id INTEGER
+    guild_id           INTEGER NOT NULL PRIMARY KEY,
+    menu_channel_id    INTEGER,
+    traffic_channel_id INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS traffic_seen_incidents (
+    incident_key TEXT NOT NULL PRIMARY KEY,
+    seen_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_traffic_seen_at ON traffic_seen_incidents (seen_at);
 """
 
 
@@ -53,6 +62,12 @@ def init(path: str) -> None:
     _conn.row_factory = sqlite3.Row
     with _lock:
         _conn.executescript(SCHEMA)
+        # guild_settings가 traffic_channel_id 컬럼이 생기기 전에 이미 만들어져
+        # 있었다면 CREATE TABLE IF NOT EXISTS만으로는 컬럼이 추가되지 않으므로,
+        # 없을 때만 직접 추가합니다.
+        columns = {row["name"] for row in _conn.execute("PRAGMA table_info(guild_settings)")}
+        if "traffic_channel_id" not in columns:
+            _conn.execute("ALTER TABLE guild_settings ADD COLUMN traffic_channel_id INTEGER")
         _conn.commit()
 
 
@@ -225,3 +240,56 @@ def all_menu_channels() -> dict[int, int]:
             "WHERE menu_channel_id IS NOT NULL"
         ).fetchall()
     return {row["guild_id"]: row["menu_channel_id"] for row in rows}
+
+
+def set_traffic_channel(guild_id: int, channel_id: int | None) -> None:
+    """고속도로 돌발상황을 알릴 채널을 지정합니다. None이면 자동 알림을 끕니다."""
+    with _tx() as conn:
+        conn.execute(
+            """INSERT INTO guild_settings (guild_id, traffic_channel_id) VALUES (?, ?)
+               ON CONFLICT (guild_id) DO UPDATE SET traffic_channel_id = ?""",
+            (guild_id, channel_id, channel_id),
+        )
+
+
+def get_traffic_channel(guild_id: int) -> int | None:
+    with _tx() as conn:
+        row = conn.execute(
+            "SELECT traffic_channel_id FROM guild_settings WHERE guild_id = ?",
+            (guild_id,),
+        ).fetchone()
+    return row["traffic_channel_id"] if row else None
+
+
+def all_traffic_channels() -> dict[int, int]:
+    """{서버 ID: 채널 ID} — 교통정보 자동 알림이 켜져 있는 서버만."""
+    with _tx() as conn:
+        rows = conn.execute(
+            "SELECT guild_id, traffic_channel_id FROM guild_settings "
+            "WHERE traffic_channel_id IS NOT NULL"
+        ).fetchall()
+    return {row["guild_id"]: row["traffic_channel_id"] for row in rows}
+
+
+# ── 교통정보 돌발상황 중복 알림 방지 ──────────────────
+
+def filter_new_incident_keys(keys: list[str]) -> list[str]:
+    """이번에 받아온 돌발상황 key들 중 처음 보는 것만 기록하고 그 목록을 돌려줍니다."""
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    fresh = []
+    with _tx() as conn:
+        for key in keys:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO traffic_seen_incidents (incident_key, seen_at) VALUES (?, ?)",
+                (key, now),
+            )
+            if cur.rowcount > 0:
+                fresh.append(key)
+    return fresh
+
+
+def prune_seen_incidents(older_than: datetime.timedelta) -> None:
+    """오래된 기록은 지워서 테이블이 무한히 커지지 않게 합니다."""
+    cutoff = (datetime.datetime.now(datetime.timezone.utc) - older_than).isoformat()
+    with _tx() as conn:
+        conn.execute("DELETE FROM traffic_seen_incidents WHERE seen_at < ?", (cutoff,))

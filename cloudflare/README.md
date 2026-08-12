@@ -15,6 +15,9 @@ Workers는 요청이 올 때만 잠깐 실행되는 구조라, 디스코드와 �
 - 레벨이 바뀌면 칭호(역할)는 **그대로 자동 지급/회수**됩니다 (명령어 처리
   시점에 REST API로 바로 반영되므로 상시 연결이 필요 없습니다).
 - 식단 자동 전송은 Cron Trigger로 그대로 매일 실행됩니다.
+- 고속도로 돌발상황(교통정보) 알림도 Cron Trigger(5분 간격)로 새로 생긴
+  상황만 골라 전송합니다. `HIGHWAY_API_KEY` secret이 없으면 이 기능만
+  조용히 꺼집니다.
 
 `bot.py`(Python, 24시간 호스팅 필요)로 가면 채팅/통화방 자동 경험치까지 전부
 쓸 수 있습니다 — 저장소 루트의 README를 참고하세요.
@@ -58,7 +61,11 @@ npm run d1:migrate:remote   # 실제 배포될 D1에 스키마 적용
 npx wrangler secret put DISCORD_TOKEN
 npx wrangler secret put DISCORD_PUBLIC_KEY
 npx wrangler secret put DISCORD_APPLICATION_ID
+npx wrangler secret put HIGHWAY_API_KEY   # 교통정보 알림용. 선택 — 없으면 그 기능만 꺼집니다
 ```
+
+`HIGHWAY_API_KEY`는 [data.ex.co.kr](https://data.ex.co.kr)(한국도로공사 Open
+API)에서 무료로 회원가입 후 발급받을 수 있습니다.
 
 ## 3.5) daewon-dispatch Service Binding 연결
 
@@ -164,3 +171,23 @@ Cloudflare Workers 무료 요금제는 호출 1회당 하위 요청(fetch 호출
   명령어를 다시 실행하면 이어서 처리됩니다.
 - 매일 식단 전송(Cron)도 서버 수가 아주 많아지면(대략 45개 이상) 이 한도에
   걸릴 수 있습니다. 개인/소규모 커뮤니티 용도라면 문제되지 않습니다.
+- 무료 요금제는 Cron Trigger를 하루 최대 몇백 회까지 지원하므로, 5분마다
+  도는 교통정보 스케줄(하루 288회)은 문제없습니다.
+
+### 교통정보(한국도로공사 Open API) 필드명은 검증이 필요합니다
+
+`src/traffic-source.ts`(및 Python `traffic_source.py`)의 응답 필드 이름은
+공개 문서를 기준으로 최선으로 맞춘 것이라, 실제 키로 연결한 뒤 확인이
+필요합니다. `HIGHWAY_API_KEY`를 등록한 뒤 아래 주소를 열어 원본 JSON을
+확인하세요 (`/setup/debug-menu`가 `url` 파라미터로 임의 주소를 대신
+가져와 줍니다):
+
+```
+https://honorary-bot.<subdomain>.workers.dev/setup/debug-menu?token=<SETUP_TOKEN>&url=https%3A%2F%2Fdata.ex.co.kr%2Fopenapi%2Ftrafficapi%2FeventInfo%3Fkey%3D<발급받은키>%26type%3Djson
+```
+
+응답 구조가 `parseIncidents()`가 기대하는 형태(`{"list": [{"msg" 또는
+"message", "roadName", "kind"/"gubun", "startName", "endName", ...}]}`)와
+다르면, 실제 필드 이름에 맞게 `src/traffic-source.ts`의 `RawIncident`
+매핑과 `traffic_source.py`의 `parse_incidents()`만 고치면 됩니다 — 나머지
+로직(중복 방지, 채널 알림, 명령어)은 그대로 재사용됩니다.

@@ -15,6 +15,8 @@ export interface Env {
    * 수 있으므로 선택 필드로 둡니다.
    */
   DAEWON_API?: Fetcher;
+  /** 한국도로공사 Open API(data.ex.co.kr) 인증키. 없으면 교통정보 기능은 조용히 꺼집니다. */
+  HIGHWAY_API_KEY?: string;
 }
 
 export interface DiscordUser {

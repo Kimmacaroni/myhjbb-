@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("honorary-bot")
 
-COGS = ("cogs.leveling", "cogs.titles", "cogs.menu", "cogs.help")
+COGS = ("cogs.leveling", "cogs.titles", "cogs.menu", "cogs.traffic", "cogs.help")
 
 
 class HonoraryBot(commands.Bot):

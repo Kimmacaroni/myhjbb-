@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { makeFakeD1 } from "./fake-d1.mjs";
+import { makeFakeD1, readAllMigrations } from "./fake-d1.mjs";
 import * as db from "./.bundled-db.mjs";
 import * as levels from "./.bundled-levels.mjs";
 import * as leveling from "./.bundled-leveling.mjs";
 
-const schema = readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8");
+const schema = readAllMigrations();
 const GUILD = "1001";
 const ADMIN = "9001"; // 명령어를 실행하는 관리자
 const TARGET = "2001"; // 경험치를 받는 대상

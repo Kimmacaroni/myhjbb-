@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { makeFakeD1 } from "./fake-d1.mjs";
+import { makeFakeD1, readAllMigrations } from "./fake-d1.mjs";
 import * as db from "./.bundled-db.mjs";
 import * as menu from "./.bundled-menu.mjs";
 
-const schema = readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8");
+const schema = readAllMigrations();
 const GUILD = "1001";
 const CHANNEL = "5001";
 const MANAGE_GUILD = (1n << 5n).toString();

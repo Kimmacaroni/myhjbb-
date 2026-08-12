@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { makeFakeD1 } from "./fake-d1.mjs";
+import { makeFakeD1, readAllMigrations } from "./fake-d1.mjs";
 import * as db from "./.bundled-db.mjs";
 
-const schema = readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8");
+const schema = readAllMigrations();
 const GUILD = "1001";
 const USER = "2001";
 
@@ -68,6 +67,44 @@ async function testSettings() {
   console.log("  db.ts: 식단 채널 설정/덮어쓰기/해제 OK");
 }
 
+async function testTrafficSettings() {
+  const d1 = makeFakeD1(schema);
+
+  assert.equal(await db.getTrafficChannel(d1, GUILD), null);
+  assert.deepEqual(await db.allTrafficChannels(d1), []);
+
+  await db.setTrafficChannel(d1, GUILD, "777");
+  assert.equal(await db.getTrafficChannel(d1, GUILD), "777");
+  assert.deepEqual(await db.allTrafficChannels(d1), [{ guildId: GUILD, channelId: "777" }]);
+
+  // 식단 채널 설정과 서로 간섭하지 않아야 함
+  await db.setMenuChannel(d1, GUILD, "555");
+  assert.equal(await db.getTrafficChannel(d1, GUILD), "777");
+  assert.equal(await db.getMenuChannel(d1, GUILD), "555");
+
+  await db.setTrafficChannel(d1, GUILD, null); // 명시적 해제
+  assert.equal(await db.getTrafficChannel(d1, GUILD), null);
+  assert.deepEqual(await db.allTrafficChannels(d1), []);
+  assert.equal(await db.getMenuChannel(d1, GUILD), "555", "다른 설정까지 같이 지워지면 안 됨");
+
+  console.log("  db.ts: 교통정보 채널 설정/덮어쓰기/해제 + 식단 설정과 독립 OK");
+}
+
+async function testSeenIncidents() {
+  const d1 = makeFakeD1(schema);
+
+  const first = await db.filterNewIncidentKeys(d1, ["a", "b"]);
+  assert.deepEqual(first.sort(), ["a", "b"]);
+
+  // 같은 key를 다시 넣으면 "새로운 것"으로 잡히면 안 됨
+  const second = await db.filterNewIncidentKeys(d1, ["a", "b", "c"]);
+  assert.deepEqual(second, ["c"]);
+
+  console.log("  db.ts: 돌발상황 중복 알림 방지(filterNewIncidentKeys) OK");
+}
+
 await testCrud();
 await testSettings();
+await testTrafficSettings();
+await testSeenIncidents();
 console.log("db.ts 전부 통과 ✅");

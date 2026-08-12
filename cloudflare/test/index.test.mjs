@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import * as ed from "@noble/ed25519";
-import { makeFakeD1 } from "./fake-d1.mjs";
+import { makeFakeD1, readAllMigrations } from "./fake-d1.mjs";
 import * as db from "./.bundled-db.mjs";
 import worker, { handleRequest } from "./.bundled-index.mjs";
 
-const schema = readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8");
+const schema = readAllMigrations();
 
 function bytesToHex(bytes) {
   return Buffer.from(bytes).toString("hex");
@@ -169,6 +168,32 @@ async function testMenuCommandDefersAndSchedulesBackground() {
   console.log("  /식단 → 즉시 defer 응답 + 백그라운드에서 후속 처리 OK");
 }
 
+async function testTrafficCommandDefersAndSchedulesBackground() {
+  const { privateKey, publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex); // HIGHWAY_API_KEY 없음 → 백그라운드에서 안내 메시지로 편집 시도
+  const { ctx, tasks } = fakeCtx();
+
+  globalThis.fetch = async (url) => {
+    const u = url.toString();
+    if (u.includes("/webhooks/")) return new Response("{}", { status: 200 });
+    throw new Error("예상치 못한 요청: " + u);
+  };
+
+  const req = await signedRequest(privateKey, {
+    type: 2,
+    token: "tok",
+    guild_id: "1001",
+    member: { user: { id: "9001", username: "u", bot: false }, roles: [], permissions: "0" },
+    data: { id: "c", name: "교통정보", options: [] },
+  });
+  const res = await handleRequest(req, env, ctx);
+  const out = await res.json();
+  assert.equal(out.type, 5, "3초 제한 때문에 즉시 defer(type 5) 응답을 줘야 합니다");
+  assert.equal(tasks.length, 1, "실제 API 조회는 ctx.waitUntil로 백그라운드 처리되어야 합니다");
+  await tasks[0];
+  console.log("  /교통정보 → 즉시 defer 응답 + 백그라운드에서 후속 처리 OK");
+}
+
 async function testHelpCommandListsEveryoneAndAdminSeparately() {
   const { privateKey, publicKeyHex } = await makeKeypair();
   const env = fakeEnv(publicKeyHex);
@@ -191,6 +216,8 @@ async function testHelpCommandListsEveryoneAndAdminSeparately() {
   assert.match(admin.value, /역할 관리 권한 필요/);
   assert.match(admin.value, /서버 관리 권한 필요/);
   assert.ok(!everyone.value.includes("경험치지급"), "관리자 명령어가 누구나 목록에 섞이면 안 됨");
+  assert.match(everyone.value, /\/교통정보\*\*/, "옵션 없는 /교통정보 자체가 목록에 있어야 함 (\\b는 한글에서 안 먹음)");
+  assert.match(admin.value, /\/교통정보채널설정 \[채널\]/);
 
   console.log("  /도움말: 명령어 정의 기반 자동 생성 + 권한별 분류 OK");
 }
@@ -372,10 +399,47 @@ async function testRegisterCommandsSucceedsWithCorrectToken() {
   );
   assert.equal(res.status, 200);
   const out = await res.json();
-  assert.equal(out.commands.length, 14);
+  assert.equal(out.commands.length, 18);
   assert.ok(calledPath.endsWith("/applications/app/commands"));
 
-  console.log("  /setup/register-commands: 정답 토큰 → 14개 명령어 등록 요청 OK");
+  console.log("  /setup/register-commands: 정답 토큰 → 18개 명령어 등록 요청 OK");
+}
+
+async function testScheduledBranchesByCron() {
+  const env = fakeEnv("unused");
+  await db.setMenuChannel(env.DB, "g1", "c1");
+  await db.setTrafficChannel(env.DB, "g1", "c1");
+  env.HIGHWAY_API_KEY = "test-key";
+
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const u = url.toString();
+    if (u.includes("daewon-dispatch")) {
+      calls.push("menu");
+      return new Response(JSON.stringify({ today: { meals: [{ type: "중식", items: ["김밥"] }] } }), { status: 200 });
+    }
+    if (u.includes("data.ex.co.kr")) {
+      calls.push("traffic");
+      return new Response(JSON.stringify({ list: [] }), { status: 200 });
+    }
+    if (u.includes("/channels/") && u.endsWith("/messages")) {
+      return new Response("{}", { status: 200 });
+    }
+    throw new Error("예상치 못한 요청: " + u);
+  };
+
+  const { ctx: dailyCtx, tasks: dailyTasks } = fakeCtx();
+  await worker.scheduled({ cron: "0 21 * * *" }, env, dailyCtx);
+  await Promise.all(dailyTasks);
+  assert.deepEqual(calls, ["menu"], "기본(매일) 스케줄은 식단만 처리해야 함");
+
+  calls.length = 0;
+  const { ctx: trafficCtx, tasks: trafficTasks } = fakeCtx();
+  await worker.scheduled({ cron: "*/5 * * * *" }, env, trafficCtx);
+  await Promise.all(trafficTasks);
+  assert.deepEqual(calls, ["traffic"], "5분 스케줄은 교통정보만 처리해야 함");
+
+  console.log("  scheduled(): event.cron 값으로 식단/교통정보 스케줄 구분 OK");
 }
 
 await testRegisterCommandsRequiresToken();
@@ -390,6 +454,8 @@ await testPingRespondsWithPong();
 await testUnknownCommandRepliesFriendly();
 await testKnownCommandRoutesCorrectly();
 await testMenuCommandDefersAndSchedulesBackground();
+await testTrafficCommandDefersAndSchedulesBackground();
+await testScheduledBranchesByCron();
 await testHelpCommandListsEveryoneAndAdminSeparately();
 await testHandlerErrorDoesNotCrash();
 console.log("index.ts (라우터) 전부 통과 ✅");

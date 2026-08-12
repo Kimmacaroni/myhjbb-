@@ -4,10 +4,12 @@
  * fetch(): 디스코드가 슬래시 명령어를 칠 때마다 호출하는 HTTP 엔드포인트
  *          (Interactions Endpoint URL). 서명을 검증한 뒤 명령어 이름으로
  *          라우팅합니다.
- * scheduled(): wrangler.toml의 cron 설정대로 매일 실행되는 식단 자동 전송.
+ * scheduled(): wrangler.toml의 cron 설정대로 실행되는 자동 전송 —
+ *          매일 식단표 전송과 5분 간격 교통정보 확인, 두 가지 스케줄을
+ *          event.cron으로 구분합니다.
  */
 import { verifySignature, rest } from "./discord";
-import { sendDailyMenu } from "./scheduled";
+import { sendDailyMenu, sendTrafficAlerts } from "./scheduled";
 import { COMMAND_DEFINITIONS } from "./command-definitions";
 import { DAEWON_API_URL } from "./menu-source";
 import type { Env, Interaction, InteractionResponse } from "./types";
@@ -15,9 +17,13 @@ import type { Env, Interaction, InteractionResponse } from "./types";
 import * as leveling from "./commands/leveling";
 import * as titles from "./commands/titles";
 import * as menu from "./commands/menu";
+import * as traffic from "./commands/traffic";
 import * as help from "./commands/help";
 
 const InteractionType = { PING: 1, APPLICATION_COMMAND: 2 } as const;
+
+/** wrangler.toml [triggers].crons 의 5분 간격 교통정보 스케줄과 같아야 합니다. */
+const TRAFFIC_CRON = "*/5 * * * *";
 
 type Handler = (env: Env, interaction: Interaction) => Promise<InteractionResponse>;
 
@@ -35,6 +41,15 @@ const HANDLERS: Record<string, Handler> = {
   식단채널설정: menu.handleSetMenuChannel,
   식단채널해제: menu.handleUnsetMenuChannel,
   식단설정: menu.handleMenuSettings,
+  교통정보채널설정: traffic.handleSetTrafficChannel,
+  교통정보채널해제: traffic.handleUnsetTrafficChannel,
+  교통정보설정: traffic.handleTrafficSettings,
+};
+
+/** 3초 안에 못 끝낼 수 있어 defer 후 백그라운드로 처리하는 명령어들. */
+const DEFERRED_HANDLERS: Record<string, (env: Env, interaction: Interaction) => Promise<void>> = {
+  식단: menu.performMenuNow,
+  교통정보: traffic.performTrafficNow,
 };
 
 export function json(body: unknown): Response {
@@ -141,12 +156,13 @@ export async function handleRequest(request: Request, env: Env, ctx: ExecutionCo
   if (interaction.type === InteractionType.APPLICATION_COMMAND) {
     const name = interaction.data?.name ?? "";
 
-    // /식단 은 API 조회에 3초 넘게 걸릴 수 있어 별도 경로로 처리합니다:
-    // 먼저 "생각 중" 응답을 보내고, 실제 작업은 백그라운드(ctx.waitUntil)에서
-    // 끝낸 뒤 결과로 편집합니다.
-    if (name === "식단") {
-      ctx.waitUntil(menu.performMenuNow(env, interaction));
-      return json(menu.handleMenuNowDefer());
+    // /식단, /교통정보 처럼 API 조회에 3초 넘게 걸릴 수 있는 명령어는 별도
+    // 경로로 처리합니다: 먼저 "생각 중" 응답을 보내고, 실제 작업은
+    // 백그라운드(ctx.waitUntil)에서 끝낸 뒤 결과로 편집합니다.
+    const deferredHandler = DEFERRED_HANDLERS[name];
+    if (deferredHandler) {
+      ctx.waitUntil(deferredHandler(env, interaction));
+      return json({ type: 5 });
     }
 
     const handler = HANDLERS[name];
@@ -171,7 +187,11 @@ export async function handleRequest(request: Request, env: Env, ctx: ExecutionCo
 
 export default {
   fetch: handleRequest,
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(sendDailyMenu(env));
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (event.cron === TRAFFIC_CRON) {
+      ctx.waitUntil(sendTrafficAlerts(env));
+    } else {
+      ctx.waitUntil(sendDailyMenu(env));
+    }
   },
 };

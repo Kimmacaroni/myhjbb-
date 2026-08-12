@@ -53,3 +53,11 @@ VOICE_IGNORE_SELF_MUTED = os.environ.get("VOICE_IGNORE_SELF_MUTED", "1") == "1"
 LEVEL_UP_CHANNEL_ID = _int_env("LEVEL_UP_CHANNEL_ID")
 # True면 가장 높은 등급의 칭호 하나만 유지하고 하위 칭호는 회수합니다.
 KEEP_ONLY_HIGHEST_TITLE = os.environ.get("KEEP_ONLY_HIGHEST_TITLE", "1") == "1"
+
+
+# ── 교통정보(고속도로 돌발상황) 알림 ─────────────────
+ENABLE_TRAFFIC_TASK = os.environ.get("ENABLE_TRAFFIC_TASK", "1") == "1"
+# 한국도로공사 Open API(data.ex.co.kr) 인증키. 없으면 교통정보 기능은 꺼집니다.
+HIGHWAY_API_KEY = os.environ.get("HIGHWAY_API_KEY", "")
+# 새 돌발상황이 있는지 확인하는 주기(분)
+TRAFFIC_POLL_MINUTES = _int_env("TRAFFIC_POLL_MINUTES", 5)

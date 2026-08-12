@@ -141,6 +141,33 @@ const commands = [
     name: "식단설정",
     description: "현재 식단 자동 전송 설정을 확인합니다.",
   },
+  {
+    name: "교통정보",
+    description: "현재 고속도로 돌발상황(사고/정체/통제)을 지금 불러옵니다.",
+  },
+  {
+    name: "교통정보채널설정",
+    description: "고속도로 돌발상황을 자동으로 알릴 채널을 지정합니다.",
+    default_member_permissions: PERMISSIONS.MANAGE_GUILD,
+    options: [
+      {
+        name: "채널",
+        description: "알림을 보낼 채널 (생략하면 이 명령어를 쓴 채널)",
+        type: OPTION_TYPE.CHANNEL,
+        channel_types: [GUILD_TEXT_CHANNEL],
+        required: false,
+      },
+    ],
+  },
+  {
+    name: "교통정보채널해제",
+    description: "고속도로 돌발상황 자동 알림을 끕니다.",
+    default_member_permissions: PERMISSIONS.MANAGE_GUILD,
+  },
+  {
+    name: "교통정보설정",
+    description: "현재 교통정보 자동 알림 설정을 확인합니다.",
+  },
 ];
 
 const path = GUILD_ID

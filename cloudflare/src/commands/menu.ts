@@ -11,12 +11,7 @@ import { fetchMenu, makeMenuEmbed, MENU_HOUR_KST } from "../menu-source";
 import type { Env, Interaction, InteractionResponse } from "../types";
 import { getOption } from "../interactions";
 
-/** 3초 안에 못 끝낼 수 있는 작업이라 일단 "생각 중" 응답을 보냅니다. */
-export function handleMenuNowDefer(): InteractionResponse {
-  return { type: 5 };
-}
-
-/** 위 defer 이후 실제 API 조회를 마치고 최종 응답으로 편집합니다. */
+/** 3초 안에 못 끝낼 수 있는 작업이라 index.ts가 먼저 "생각 중" 응답을 보낸 뒤 이 함수로 마무리합니다. */
 export async function performMenuNow(env: Env, interaction: Interaction): Promise<void> {
   try {
     const menuText = await fetchMenu(env.DAEWON_API);

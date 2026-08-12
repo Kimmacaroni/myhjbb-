@@ -169,3 +169,60 @@ export async function allMenuChannels(db: D1Database): Promise<{ guildId: string
     .all<{ guild_id: string; menu_channel_id: string }>();
   return results.map((r) => ({ guildId: r.guild_id, channelId: r.menu_channel_id }));
 }
+
+export async function setTrafficChannel(
+  db: D1Database,
+  guildId: string,
+  channelId: string | null,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO guild_settings (guild_id, traffic_channel_id) VALUES (?, ?)
+       ON CONFLICT (guild_id) DO UPDATE SET traffic_channel_id = ?`,
+    )
+    .bind(guildId, channelId, channelId)
+    .run();
+}
+
+export async function getTrafficChannel(db: D1Database, guildId: string): Promise<string | null> {
+  const row = await db
+    .prepare(`SELECT traffic_channel_id FROM guild_settings WHERE guild_id = ?`)
+    .bind(guildId)
+    .first<{ traffic_channel_id: string | null }>();
+  return row?.traffic_channel_id ?? null;
+}
+
+export async function allTrafficChannels(db: D1Database): Promise<{ guildId: string; channelId: string }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT guild_id, traffic_channel_id FROM guild_settings WHERE traffic_channel_id IS NOT NULL`,
+    )
+    .all<{ guild_id: string; traffic_channel_id: string }>();
+  return results.map((r) => ({ guildId: r.guild_id, channelId: r.traffic_channel_id }));
+}
+
+// ── 교통정보 돌발상황 중복 알림 방지 ──────────────────
+
+/**
+ * 이번에 받아온 돌발상황 key들 중 "처음 보는" 것만 기록하고 그 목록을
+ * 돌려줍니다. INSERT OR IGNORE + changes 개수로 판단하기 때문에, 이미 본
+ * key는 자동으로 걸러지고 별도 SELECT가 필요 없습니다.
+ */
+export async function filterNewIncidentKeys(db: D1Database, keys: string[]): Promise<string[]> {
+  const now = new Date().toISOString();
+  const fresh: string[] = [];
+  for (const key of keys) {
+    const res = await db
+      .prepare(`INSERT OR IGNORE INTO traffic_seen_incidents (incident_key, seen_at) VALUES (?, ?)`)
+      .bind(key, now)
+      .run();
+    if (res.meta.changes > 0) fresh.push(key);
+  }
+  return fresh;
+}
+
+/** 오래된 기록은 지워서 테이블이 무한히 커지지 않게 합니다. */
+export async function pruneSeenIncidents(db: D1Database, olderThanMs: number): Promise<void> {
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  await db.prepare(`DELETE FROM traffic_seen_incidents WHERE seen_at < ?`).bind(cutoff).run();
+}
