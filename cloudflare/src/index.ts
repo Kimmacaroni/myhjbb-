@@ -54,7 +54,9 @@ const DEFERRED_HANDLERS: Record<string, (env: Env, interaction: Interaction) => 
 };
 
 export function json(body: unknown): Response {
-  return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
 }
 
 /**
