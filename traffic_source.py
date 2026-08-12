@@ -16,7 +16,7 @@ Cloudflare 버전(traffic-source.ts)과 로직을 맞춰 뒀습니다 — 한쪽
 import discord
 import requests
 
-HIGHWAY_API_URL = "https://data.ex.co.kr/openapi/trafficapi/eventInfo"
+HIGHWAY_API_URL = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest"
 
 
 def _fallback_key(item: dict) -> str:

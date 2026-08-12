@@ -14,7 +14,7 @@
  * 않습니다.
  */
 
-export const HIGHWAY_API_URL = "https://data.ex.co.kr/openapi/trafficapi/eventInfo";
+export const HIGHWAY_API_URL = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest";
 
 export interface Incident {
   /** 중복 알림 방지에 쓰는 고유 키. API가 안 주면 나머지 필드를 조합해 만듭니다. */

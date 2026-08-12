@@ -111,7 +111,7 @@ console.log("scheduled.ts (식단) 전부 통과 ✅");
 
 // ── 교통정보(sendTrafficAlerts) ────────────────────────
 
-const HIGHWAY_URL_PREFIX = "https://data.ex.co.kr/openapi/trafficapi/eventInfo";
+const HIGHWAY_URL_PREFIX = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest";
 const INCIDENT_A = { key: "a", msg: "경부선 사고", roadName: "경부선" };
 const INCIDENT_B = { key: "b", msg: "서해안선 공사", roadName: "서해안선" };
 
