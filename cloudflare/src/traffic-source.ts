@@ -88,9 +88,17 @@ export function parseIncidents(raw: unknown): Incident[] {
   return incidents;
 }
 
+/**
+ * @param fetcher 테스트용 fetch 대체. 생략하면 전역 fetch를 씁니다.
+ *   기본값을 `fetch.bind(globalThis)`로 감싸는 이유: Workers 런타임에서
+ *   `{ fetch }`처럼 객체에 담아 `obj.fetch(...)`로 부르면 "Illegal
+ *   invocation" 오류가 납니다 — bind로 감싸야 안전합니다. (Node 테스트
+ *   환경에서는 이 제약이 없어서 테스트로는 못 잡고 실제 배포 후에야
+ *   드러났습니다.)
+ */
 export async function fetchIncidents(
   apiKey: string,
-  fetcher: { fetch: typeof fetch } = { fetch },
+  fetcher: { fetch: typeof fetch } = { fetch: fetch.bind(globalThis) },
 ): Promise<Incident[]> {
   const url = new URL(HIGHWAY_API_URL);
   url.searchParams.set("key", apiKey);

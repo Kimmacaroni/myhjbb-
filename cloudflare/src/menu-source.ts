@@ -89,8 +89,13 @@ export function makeMenuEmbed(menuText: string, now: Date = new Date()) {
  * @param fetcher Service Binding(env.DAEWON_API) 또는 테스트용 fetch 대체.
  *   생략하면 전역 fetch를 씁니다 — 실제 배포 환경에서는 반드시 Service
  *   Binding을 넘겨야 계정 내 Worker 간 fetch 제한(오류 1042)을 피합니다.
+ *   기본값을 `fetch.bind(globalThis)`로 감싸는 이유: Workers 런타임에서
+ *   `{ fetch }`처럼 객체에 담아 `obj.fetch(...)`로 부르면 "Illegal
+ *   invocation" 오류가 납니다 — bind로 감싸야 안전합니다.
  */
-export async function fetchMenu(fetcher: { fetch: typeof fetch } = { fetch }): Promise<string> {
+export async function fetchMenu(
+  fetcher: { fetch: typeof fetch } = { fetch: fetch.bind(globalThis) },
+): Promise<string> {
   const response = await fetcher.fetch(DAEWON_API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -144,7 +144,11 @@ async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
   }
 
   const isDaewonApi = target === DAEWON_API_URL;
-  const fetcher = isDaewonApi && env.DAEWON_API ? env.DAEWON_API : { fetch };
+  // Workers 런타임에서는 { fetch } 처럼 객체에 담아 fetcher.fetch(...)로
+  // 부르면 "Illegal invocation" 오류가 납니다(전역 fetch는 자기 자신이
+  // 아닌 다른 객체를 통해 호출되면 안 되는 내부 제약이 있음) — bind로
+  // 감싸야 객체 메서드 형태로 호출해도 안전합니다.
+  const fetcher = isDaewonApi && env.DAEWON_API ? env.DAEWON_API : { fetch: fetch.bind(globalThis) };
   const bindingNote = isDaewonApi
     ? `[Service Binding: ${env.DAEWON_API ? "사용함" : "설정 안 됨 — 계정 내 Worker 간 요청은 fetch()로 안 되어 아래도 404가 뜰 수 있습니다"}]\n\n`
     : "";
