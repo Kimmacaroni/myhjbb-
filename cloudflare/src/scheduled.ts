@@ -24,7 +24,7 @@ export async function sendDailyMenu(env: Env): Promise<void> {
   try {
     embed = makeMenuEmbed(await fetchMenu());
   } catch (err) {
-    console.error("식단 크롤링 실패 — 오늘 전송을 건너뜁니다.", err);
+    console.error("식단 조회 실패 — 오늘 전송을 건너뜁니다.", err);
     return;
   }
 

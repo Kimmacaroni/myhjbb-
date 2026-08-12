@@ -99,4 +99,4 @@ await testSetChannelPermissionDenied();
 await testUnsetChannel();
 await testShowSettingsReflectsState();
 console.log("menu.ts 명령어 전부 통과 ✅");
-console.log("  ※ performMenuNow()의 실제 크롤링(fetchMenu)은 HTMLRewriter 필요 — 배포 후 /식단 으로 확인");
+console.log("  ※ performMenuNow()가 부르는 fetchMenu()는 menu-source.test.mjs에서 검증");

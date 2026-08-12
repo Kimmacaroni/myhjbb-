@@ -16,7 +16,7 @@ export function handleMenuNowDefer(): InteractionResponse {
   return { type: 5 };
 }
 
-/** 위 defer 이후 실제 크롤링을 마치고 최종 응답으로 편집합니다. */
+/** 위 defer 이후 실제 API 조회를 마치고 최종 응답으로 편집합니다. */
 export async function performMenuNow(env: Env, interaction: Interaction): Promise<void> {
   try {
     const menuText = await fetchMenu();

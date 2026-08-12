@@ -1,7 +1,7 @@
 """식단 브리핑.
 
 기존 `food_bot.py`가 하던 일을 상시 실행 봇 안으로 옮긴 것입니다.
-매일 정해진 시각(KST)에 식단표를 크롤링해 서버별로 지정된 채널로 보냅니다.
+매일 정해진 시각(KST)에 식단 정보를 받아 서버별로 지정된 채널로 보냅니다.
 
 전송 채널은 `/식단채널설정` 명령어로 디스코드에서 바로 바꿀 수 있고, 설정은
 데이터베이스에 저장되어 재시작 후에도 유지됩니다.
@@ -64,10 +64,10 @@ class Menu(commands.Cog):
             return
 
         try:
-            # 서버가 여러 곳이어도 크롤링은 한 번만 합니다.
+            # 서버가 여러 곳이어도 API 조회는 한 번만 합니다.
             embed = await menu_source.build_embed()
         except Exception:
-            log.exception("식단 크롤링 실패 — 오늘 전송을 건너뜁니다.")
+            log.exception("식단 조회 실패 — 오늘 전송을 건너뜁니다.")
             return
 
         for channel in channels:

@@ -9,7 +9,7 @@
 import { verifySignature, rest } from "./discord";
 import { sendDailyMenu } from "./scheduled";
 import { COMMAND_DEFINITIONS } from "./command-definitions";
-import { MENU_URL } from "./menu-source";
+import { DAEWON_API_URL } from "./menu-source";
 import type { Env, Interaction, InteractionResponse } from "./types";
 
 import * as leveling from "./commands/leveling";
@@ -74,8 +74,9 @@ async function handleRegisterCommands(request: Request, env: Env): Promise<Respo
  * 임의의 주소를 Worker가 대신 가져와 응답을 그대로 보여주는 진단용
  * 엔드포인트입니다. 개발 환경은 여러 외부 사이트로 나가는 네트워크가 막혀
  * 있어 직접 확인할 수 없으므로, 실제 봇과 같은 네트워크 경로로 대신
- * 가져옵니다. `url` 파라미터를 생략하면 식단표 주소(MENU_URL)를 봅니다.
- * 다 쓰신 뒤에는 SETUP_TOKEN secret을 지워서 잠가 두셔도 됩니다.
+ * 가져옵니다. `url` 파라미터를 생략하면 식단 API 주소(DAEWON_API_URL)를
+ * fetchMenu()와 똑같이 POST로 조회합니다. 다 쓰신 뒤에는 SETUP_TOKEN
+ * secret을 지워서 잠가 두셔도 됩니다.
  */
 async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
   const params = new URL(request.url).searchParams;
@@ -84,7 +85,7 @@ async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
     return new Response("권한이 없습니다.", { status: 403 });
   }
 
-  const target = params.get("url") || MENU_URL;
+  const target = params.get("url") || DAEWON_API_URL;
   let targetUrl: URL;
   try {
     targetUrl = new URL(target);
@@ -95,7 +96,13 @@ async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
     return new Response("https 주소만 확인할 수 있습니다.", { status: 400 });
   }
 
-  const res = await fetch(targetUrl.toString(), { headers: { "User-Agent": "Mozilla/5.0" } });
+  const isDaewonApi = target === DAEWON_API_URL;
+  const res = await fetch(
+    targetUrl.toString(),
+    isDaewonApi
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "foodmenu" }) }
+      : { headers: { "User-Agent": "Mozilla/5.0" } },
+  );
   const body = await res.text();
   return new Response(`HTTP ${res.status} ${res.statusText}\n\n${body}`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -130,7 +137,7 @@ export async function handleRequest(request: Request, env: Env, ctx: ExecutionCo
   if (interaction.type === InteractionType.APPLICATION_COMMAND) {
     const name = interaction.data?.name ?? "";
 
-    // /식단 은 크롤링에 3초 넘게 걸릴 수 있어 별도 경로로 처리합니다:
+    // /식단 은 API 조회에 3초 넘게 걸릴 수 있어 별도 경로로 처리합니다:
     // 먼저 "생각 중" 응답을 보내고, 실제 작업은 백그라운드(ctx.waitUntil)에서
     // 끝낸 뒤 결과로 편집합니다.
     if (name === "식단") {

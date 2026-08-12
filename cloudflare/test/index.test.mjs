@@ -144,11 +144,12 @@ async function testMenuCommandDefersAndSchedulesBackground() {
   const env = fakeEnv(publicKeyHex);
   const { ctx, tasks } = fakeCtx();
 
-  // performMenuNow가 실제로 fetch(menu url)을 시도하지 않도록,
-  // 여기서는 defer 응답과 waitUntil 등록 여부만 확인합니다.
+  // performMenuNow가 실제로 daewon-dispatch API 정상 응답까지 처리하는지는
+  // menu-source.test.mjs에서 검증하므로, 여기서는 defer 응답과 waitUntil
+  // 등록 여부만 확인합니다.
   globalThis.fetch = async (url) => {
     const u = url.toString();
-    if (u.includes("buspia")) return new Response("", { status: 500 });
+    if (u.includes("daewon-dispatch")) return new Response("", { status: 500 });
     if (u.includes("/webhooks/")) return new Response("{}", { status: 200 }); // 에러 편집 응답
     throw new Error("예상치 못한 요청: " + u);
   };
@@ -163,7 +164,7 @@ async function testMenuCommandDefersAndSchedulesBackground() {
   const res = await handleRequest(req, env, ctx);
   const out = await res.json();
   assert.equal(out.type, 5, "3초 제한 때문에 즉시 defer(type 5) 응답을 줘야 합니다");
-  assert.equal(tasks.length, 1, "실제 크롤링은 ctx.waitUntil로 백그라운드 처리되어야 합니다");
+  assert.equal(tasks.length, 1, "실제 API 조회는 ctx.waitUntil로 백그라운드 처리되어야 합니다");
   await tasks[0]; // 백그라운드 작업도 에러 없이 끝나는지 확인 (500 → 에러 메시지로 편집 시도)
   console.log("  /식단 → 즉시 defer 응답 + 백그라운드에서 후속 처리 OK");
 }
@@ -207,9 +208,11 @@ async function testDebugMenuRequiresTokenAndReturnsRawBody() {
   assert.equal(noToken.status, 403);
   console.log("  /setup/debug-menu: 토큰 없음 → 403 + 요청 미발생 OK");
 
-  globalThis.fetch = async (url) => {
-    assert.ok(url.toString().includes("buspia.co.kr"));
-    return new Response("<html><body>구조가 바뀐 페이지</body></html>", { status: 200, statusText: "OK" });
+  globalThis.fetch = async (url, init) => {
+    assert.ok(url.toString().includes("daewon-dispatch"));
+    assert.equal(init.method, "POST", "기본 대상(daewon API)은 fetchMenu()와 같은 POST여야 함");
+    assert.deepEqual(JSON.parse(init.body), { action: "foodmenu" });
+    return new Response('{"today":{"meals":[]}}', { status: 200, statusText: "OK" });
   };
   const res = await handleRequest(
     new Request("https://example.com/setup/debug-menu?token=correct-token"),
@@ -219,8 +222,8 @@ async function testDebugMenuRequiresTokenAndReturnsRawBody() {
   assert.equal(res.status, 200);
   const text = await res.text();
   assert.match(text, /HTTP 200 OK/);
-  assert.match(text, /구조가 바뀐 페이지/);
-  console.log("  /setup/debug-menu: 정답 토큰 → 실제 사이트 응답 원문 그대로 반환 OK");
+  assert.match(text, /"today"/);
+  console.log("  /setup/debug-menu: 정답 토큰 → 실제 API 응답 원문 그대로 반환 OK");
 }
 
 async function testDebugMenuAcceptsCustomUrl() {

@@ -118,10 +118,10 @@ npm test            # 순수 로직 + 명령어 핸들러 단위 테스트
 npm run dev          # 로컬에서 Worker 실행 (wrangler dev)
 ```
 
-`npm test`는 Cloudflare D1을 Node의 내장 SQLite로, 디스코드 REST 호출을
-가짜 `fetch`로 대체해 검증합니다. 다만 **`/식단`의 실제 크롤링은
-`HTMLRewriter`(Workers 전용 API)를 쓰기 때문에 로컬 Node 테스트로는 검증되지
-않습니다** — 배포 후 반드시 `/식단`을 직접 실행해 실제 사이트에서 식단이
+`npm test`는 Cloudflare D1을 Node의 내장 SQLite로, 디스코드 REST 호출과
+식단 API(daewon-dispatch) 호출을 가짜 `fetch`로 대체해 검증합니다. 다만
+실제 daewon-dispatch API가 응답 형식을 바꾸는 등의 문제는 로컬 테스트로
+잡히지 않으므로, 배포 후에는 `/식단`을 직접 실행해 실제 API에서 식단이
 제대로 오는지 확인하세요.
 
 ## 알려진 제약 (무료 요금제 기준)
