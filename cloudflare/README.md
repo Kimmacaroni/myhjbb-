@@ -178,12 +178,13 @@ Cloudflare Workers 무료 요금제는 호출 1회당 하위 요청(fetch 호출
 
 `src/traffic-source.ts`(및 Python `traffic_source.py`)의 응답 필드 이름은
 공개 문서를 기준으로 최선으로 맞춘 것이라, 실제 키로 연결한 뒤 확인이
-필요합니다. `HIGHWAY_API_KEY`를 등록한 뒤 아래 주소를 열어 원본 JSON을
-확인하세요 (`/setup/debug-menu`가 `url` 파라미터로 임의 주소를 대신
-가져와 줍니다):
+필요합니다. `HIGHWAY_API_KEY` secret을 등록한 뒤 아래 주소를 열면
+원본 JSON을 확인할 수 있습니다 (`target=traffic` 이면 `/setup/debug-menu`가
+등록된 `HIGHWAY_API_KEY`로 서버 쪽에서 대신 조회해 주므로, 발급받은 키를
+주소창에 직접 붙여넣을 필요가 없습니다):
 
 ```
-https://honorary-bot.<subdomain>.workers.dev/setup/debug-menu?token=<SETUP_TOKEN>&url=https%3A%2F%2Fdata.ex.co.kr%2Fopenapi%2Ftrafficapi%2FeventInfo%3Fkey%3D<발급받은키>%26type%3Djson
+https://honorary-bot.<subdomain>.workers.dev/setup/debug-menu?token=<SETUP_TOKEN>&target=traffic
 ```
 
 응답 구조가 `parseIncidents()`가 기대하는 형태(`{"list": [{"msg" 또는

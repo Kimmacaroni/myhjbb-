@@ -12,6 +12,7 @@ import { verifySignature, rest } from "./discord";
 import { sendDailyMenu, sendTrafficAlerts } from "./scheduled";
 import { COMMAND_DEFINITIONS } from "./command-definitions";
 import { DAEWON_API_URL } from "./menu-source";
+import { HIGHWAY_API_URL } from "./traffic-source";
 import type { Env, Interaction, InteractionResponse } from "./types";
 
 import * as leveling from "./commands/leveling";
@@ -86,18 +87,47 @@ async function handleRegisterCommands(request: Request, env: Env): Promise<Respo
 }
 
 /**
+ * 한국도로공사 교통정보 API를 서버(env.HIGHWAY_API_KEY) 쪽 키로 대신
+ * 호출해 원본 응답을 그대로 보여줍니다. `handleDebugMenu`의 `url`
+ * 파라미터로도 같은 걸 확인할 수 있지만, 그러면 발급받은 키를 URL에 직접
+ * 붙여넣어야 해서 주소창/로그에 노출됩니다 — 이 경로는 키를 노출하지 않고
+ * 확인할 수 있게 만든 것입니다 (`?target=traffic`).
+ */
+async function handleDebugTraffic(env: Env): Promise<Response> {
+  if (!env.HIGHWAY_API_KEY) {
+    return new Response("HIGHWAY_API_KEY secret이 설정되지 않았습니다.", { status: 400 });
+  }
+
+  const url = new URL(HIGHWAY_API_URL);
+  url.searchParams.set("key", env.HIGHWAY_API_KEY);
+  url.searchParams.set("type", "json");
+
+  const res = await fetch(url.toString());
+  const body = await res.text();
+  return new Response(`HTTP ${res.status} ${res.statusText}\n\n${body}`, {
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+/**
  * 임의의 주소를 Worker가 대신 가져와 응답을 그대로 보여주는 진단용
  * 엔드포인트입니다. 개발 환경은 여러 외부 사이트로 나가는 네트워크가 막혀
  * 있어 직접 확인할 수 없으므로, 실제 봇과 같은 네트워크 경로로 대신
  * 가져옵니다. `url` 파라미터를 생략하면 식단 API 주소(DAEWON_API_URL)를
  * fetchMenu()와 똑같은 방식(가능하면 Service Binding)으로 POST 조회합니다.
- * 다 쓰신 뒤에는 SETUP_TOKEN secret을 지워서 잠가 두셔도 됩니다.
+ * `target=traffic` 이면 대신 교통정보 API를 서버 쪽 키로 조회합니다
+ * (`handleDebugTraffic` 참고). 다 쓰신 뒤에는 SETUP_TOKEN secret을 지워서
+ * 잠가 두셔도 됩니다.
  */
 async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
   const params = new URL(request.url).searchParams;
   const token = params.get("token");
   if (!env.SETUP_TOKEN || token !== env.SETUP_TOKEN) {
     return new Response("권한이 없습니다.", { status: 403 });
+  }
+
+  if (params.get("target") === "traffic") {
+    return handleDebugTraffic(env);
   }
 
   const target = params.get("url") || DAEWON_API_URL;

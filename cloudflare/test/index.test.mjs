@@ -285,6 +285,51 @@ async function testDebugMenuUsesServiceBindingWhenAvailable() {
   console.log("  /setup/debug-menu: Service Binding이 있으면 그걸로 조회 + 전역 fetch 미사용 OK");
 }
 
+async function testDebugTrafficUsesServerSideKeyWithoutExposingIt() {
+  const { publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex);
+  env.SETUP_TOKEN = "correct-token";
+  env.HIGHWAY_API_KEY = "super-secret-key";
+  const { ctx } = fakeCtx();
+
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = new URL(url.toString());
+    return new Response('{"list":[]}', { status: 200, statusText: "OK" });
+  };
+
+  const res = await handleRequest(
+    new Request("https://example.com/setup/debug-menu?token=correct-token&target=traffic"),
+    env,
+    ctx,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(requestedUrl.searchParams.get("key"), "super-secret-key", "서버 쪽 secret으로 조회해야 함");
+  assert.equal(requestedUrl.searchParams.get("type"), "json");
+  const text = await res.text();
+  assert.match(text, /"list"/);
+  console.log("  /setup/debug-menu?target=traffic: 서버 쪽 HIGHWAY_API_KEY로 조회 (URL에 키 노출 없음) OK");
+}
+
+async function testDebugTrafficRequiresApiKeyConfigured() {
+  const { publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex); // HIGHWAY_API_KEY 없음
+  env.SETUP_TOKEN = "correct-token";
+  const { ctx } = fakeCtx();
+
+  globalThis.fetch = async () => {
+    throw new Error("키가 없으면 API를 호출하면 안 됩니다");
+  };
+
+  const res = await handleRequest(
+    new Request("https://example.com/setup/debug-menu?token=correct-token&target=traffic"),
+    env,
+    ctx,
+  );
+  assert.equal(res.status, 400);
+  console.log("  /setup/debug-menu?target=traffic: HIGHWAY_API_KEY 미설정 → 400 + 요청 미발생 OK");
+}
+
 async function testDebugMenuAcceptsCustomUrl() {
   const { publicKeyHex } = await makeKeypair();
   const env = fakeEnv(publicKeyHex);
@@ -446,6 +491,8 @@ await testRegisterCommandsRequiresToken();
 await testRegisterCommandsSucceedsWithCorrectToken();
 await testDebugMenuRequiresTokenAndReturnsRawBody();
 await testDebugMenuUsesServiceBindingWhenAvailable();
+await testDebugTrafficUsesServerSideKeyWithoutExposingIt();
+await testDebugTrafficRequiresApiKeyConfigured();
 await testDebugMenuAcceptsCustomUrl();
 await testRejectsNonPost();
 await testRejectsInvalidSignature();
