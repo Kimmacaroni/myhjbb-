@@ -29,6 +29,34 @@ function testFormatMealsText() {
   console.log("  formatMealsText: 끼니 정보가 없으면 예외 OK");
 }
 
+function testFormatMealsTextKeepsOnlyFirstDay() {
+  // 실제 API가 준 응답: 5일치가 조식/중식/석식 반복으로 한 배열에 이어붙어 옴.
+  const meals = [
+    { type: "조식", items: ["오늘아침"], kcal: 500 },
+    { type: "중식", items: ["오늘점심"], kcal: 900 },
+    { type: "석식", items: ["오늘저녁"], kcal: 700 },
+    { type: "조식", items: ["내일아침"], kcal: 500 },
+    { type: "중식", items: ["내일점심"], kcal: 900 },
+    { type: "석식", items: ["내일저녁"], kcal: 700 },
+    { type: "조식", items: ["모레아침"], kcal: 500 },
+    { type: "중식", items: ["모레점심"], kcal: 900 },
+    { type: "석식", items: ["모레저녁"], kcal: 700 },
+  ];
+  const text = menu.formatMealsText(meals);
+  assert.ok(text.includes("오늘아침") && text.includes("오늘점심") && text.includes("오늘저녁"));
+  assert.ok(!text.includes("내일아침") && !text.includes("모레아침"), "오늘 이후 날짜는 잘려야 함");
+  assert.equal(text.split("─".repeat(20)).length - 1, 2, "오늘 몫만 남아 구분선도 2번이어야 함");
+  console.log("  formatMealsText: 여러 날이 이어붙어 와도 맨 앞 하루(오늘)만 남기기 OK");
+
+  // 하루치만 오는 정상 케이스는 그대로 다 남아야 함 (오탐 방지)
+  const singleDay = [
+    { type: "조식", items: ["아침"] },
+    { type: "중식", items: ["점심"] },
+  ];
+  const singleDayResult = menu.formatMealsText(singleDay);
+  assert.ok(singleDayResult.includes("아침") && singleDayResult.includes("점심"));
+}
+
 function testMakeMenuEmbed() {
   const embed = menu.makeMenuEmbed("중식\n제육볶음", new Date("2026-07-29T00:00:00Z"));
   assert.match(embed.title, /식단 브리핑/);
@@ -95,6 +123,7 @@ async function testFetchMenuPrefersServiceBinding() {
 
 testKstDateString();
 testFormatMealsText();
+testFormatMealsTextKeepsOnlyFirstDay();
 testMakeMenuEmbed();
 await testFetchMenuSuccess();
 await testFetchMenuHandlesErrors();

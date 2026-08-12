@@ -41,6 +41,19 @@ export function kstDateString(date: Date): string {
   return `${map.year}년 ${map.month}월 ${map.day}일`;
 }
 
+/**
+ * API가 여러 날(예: 이번 주 전체)치를 한 배열에 이어붙여 내려주는 경우가
+ * 있어서, 두 번째로 나오는 "조식" 앞까지만 잘라 맨 앞 하루(오늘) 것만
+ * 남깁니다. 하루치만 오면(조식이 한 번뿐이면) 그대로 둡니다.
+ */
+function firstDayMeals(meals: Meal[]): Meal[] {
+  const breakfastIndexes = meals.reduce<number[]>((acc, m, i) => {
+    if (m.type === "조식") acc.push(i);
+    return acc;
+  }, []);
+  return breakfastIndexes.length >= 2 ? meals.slice(0, breakfastIndexes[1]) : meals;
+}
+
 /** API가 내려준 끼니 목록(조식/중식/석식)을 중식/석식 앞에 구분선을 넣어 텍스트로 만듭니다. */
 export function formatMealsText(meals: Meal[] | undefined): string {
   if (!meals || meals.length === 0) {
@@ -48,7 +61,7 @@ export function formatMealsText(meals: Meal[] | undefined): string {
   }
 
   const lines: string[] = [];
-  for (const meal of meals) {
+  for (const meal of firstDayMeals(meals)) {
     if (meal.type === "중식" || meal.type === "석식") {
       lines.push("─".repeat(20));
     }

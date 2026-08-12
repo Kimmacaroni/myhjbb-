@@ -20,12 +20,23 @@ DAEWON_API_URL = "https://daewon-dispatch.kcy990830.workers.dev"
 KST = timezone(timedelta(hours=9))
 
 
+def _first_day_meals(meals: list[dict]) -> list[dict]:
+    """API가 여러 날치를 한 배열에 이어붙여 내려주는 경우가 있어서, 두 번째로
+    나오는 "조식" 앞까지만 잘라 맨 앞 하루(오늘) 것만 남깁니다. 하루치만
+    오면(조식이 한 번뿐이면) 그대로 둡니다.
+    """
+    breakfast_indexes = [i for i, m in enumerate(meals) if m.get("type") == "조식"]
+    if len(breakfast_indexes) >= 2:
+        return meals[: breakfast_indexes[1]]
+    return meals
+
+
 def _format_meals(meals: list[dict]) -> str:
     if not meals:
         raise ValueError("오늘의 식단 정보가 없습니다.")
 
     final = []
-    for meal in meals:
+    for meal in _first_day_meals(meals):
         meal_type = meal.get("type", "")
         if meal_type in ("중식", "석식"):
             final.append("─" * 20)
