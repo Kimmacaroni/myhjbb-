@@ -102,7 +102,7 @@ async function handleDebugTraffic(env: Env): Promise<Response> {
   url.searchParams.set("key", env.HIGHWAY_API_KEY);
   url.searchParams.set("type", "json");
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: { "User-Agent": "Mozilla/5.0" } });
   const body = await res.text();
   return new Response(`HTTP ${res.status} ${res.statusText}\n\n${body}`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },

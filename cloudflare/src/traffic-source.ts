@@ -78,7 +78,7 @@ export async function fetchIncidents(
   url.searchParams.set("key", apiKey);
   url.searchParams.set("type", "json");
 
-  const response = await fetcher.fetch(url.toString());
+  const response = await fetcher.fetch(url.toString(), { headers: { "User-Agent": "Mozilla/5.0" } });
   if (!response.ok) {
     throw new Error(`교통정보 API 응답 오류: HTTP ${response.status}`);
   }
