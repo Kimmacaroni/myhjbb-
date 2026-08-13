@@ -444,10 +444,10 @@ async function testRegisterCommandsSucceedsWithCorrectToken() {
   );
   assert.equal(res.status, 200);
   const out = await res.json();
-  assert.equal(out.commands.length, 18);
+  assert.equal(out.commands.length, 19);
   assert.ok(calledPath.endsWith("/applications/app/commands"));
 
-  console.log("  /setup/register-commands: 정답 토큰 → 18개 명령어 등록 요청 OK");
+  console.log("  /setup/register-commands: 정답 토큰 → 19개 명령어 등록 요청 OK");
 }
 
 async function testScheduledBranchesByCron() {

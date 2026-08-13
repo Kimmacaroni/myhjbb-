@@ -235,3 +235,50 @@ export async function syncActiveIncidents(db: D1Database, currentKeys: string[])
 
   return fresh;
 }
+
+// ── 교통정보 확인 주기 (전체 공통 설정) ────────────────
+
+const DEFAULT_TRAFFIC_POLL_MINUTES = 30;
+
+export async function getTrafficPollIntervalMinutes(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare(`SELECT interval_minutes FROM traffic_poll_state WHERE id = 1`)
+    .first<{ interval_minutes: number }>();
+  return row?.interval_minutes ?? DEFAULT_TRAFFIC_POLL_MINUTES;
+}
+
+export async function setTrafficPollIntervalMinutes(db: D1Database, minutes: number): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO traffic_poll_state (id, interval_minutes) VALUES (1, ?)
+       ON CONFLICT (id) DO UPDATE SET interval_minutes = excluded.interval_minutes`,
+    )
+    .bind(minutes)
+    .run();
+}
+
+/**
+ * 실제 API 조회를 실행해야 하는 cron 틱인지 확인합니다(설정된 주기가
+ * 아직 안 지났으면 false). 이 함수 자체는 시각을 기록하지 않습니다 —
+ * API 조회가 성공한 뒤 recordTrafficPollRan()으로 따로 기록해야, 조회
+ * 실패 시 다음 틱(5분 뒤)에 바로 재시도됩니다.
+ */
+export async function shouldPollTraffic(db: D1Database, now: Date): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT interval_minutes, last_run_at FROM traffic_poll_state WHERE id = 1`)
+    .first<{ interval_minutes: number; last_run_at: string | null }>();
+  if (!row || !row.last_run_at) return true;
+
+  const elapsedMs = now.getTime() - new Date(row.last_run_at).getTime();
+  return elapsedMs >= row.interval_minutes * 60_000;
+}
+
+export async function recordTrafficPollRan(db: D1Database, now: Date): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO traffic_poll_state (id, last_run_at) VALUES (1, ?)
+       ON CONFLICT (id) DO UPDATE SET last_run_at = excluded.last_run_at`,
+    )
+    .bind(now.toISOString())
+    .run();
+}

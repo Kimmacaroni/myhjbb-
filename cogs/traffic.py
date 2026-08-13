@@ -56,8 +56,13 @@ class Traffic(commands.Cog):
         if not config.HIGHWAY_API_KEY:
             log.info("HIGHWAY_API_KEY가 설정되지 않아 교통정보 자동 알림을 시작하지 않습니다.")
             return
-        self.poll_traffic.change_interval(minutes=config.TRAFFIC_POLL_MINUTES)
+        self.poll_traffic.change_interval(minutes=self._poll_minutes())
         self.poll_traffic.start()
+
+    def _poll_minutes(self) -> int:
+        """/교통정보주기설정으로 저장한 값이 있으면 그 값을, 없으면(처음 실행)
+        환경변수 기본값을 씁니다."""
+        return db.get_traffic_poll_minutes(config.TRAFFIC_POLL_MINUTES)
 
     async def cog_unload(self):
         self.poll_traffic.cancel()
@@ -228,8 +233,31 @@ class Traffic(commands.Cog):
 
         embed = discord.Embed(title="🚧 교통정보 자동 알림 설정", colour=discord.Colour.orange())
         embed.add_field(name="상태", value=status, inline=False)
-        embed.add_field(name="확인 주기", value=f"{config.TRAFFIC_POLL_MINUTES}분마다")
+        embed.add_field(
+            name="확인 주기",
+            value=f"{self._poll_minutes()}분마다 (봇 전체 공통 — /교통정보주기설정 으로 변경)",
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="교통정보주기설정",
+        description="고속도로 정체 정보를 확인하는 주기를 설정합니다 (기본 30분, 모든 서버 공통).",
+    )
+    @app_commands.describe(분="확인 주기(분), 5~360 사이")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.default_permissions(manage_guild=True)
+    async def set_interval(
+        self, interaction: discord.Interaction, 분: app_commands.Range[int, 5, 360]
+    ):
+        db.set_traffic_poll_minutes(분)
+        if self.poll_traffic.is_running():
+            self.poll_traffic.change_interval(minutes=분)
+
+        await interaction.response.send_message(
+            f"✅ 교통정보 확인 주기를 {분}분으로 설정했습니다.\n"
+            "이 설정은 서버별이 아니라 봇 전체에 공통으로 적용됩니다"
+            "(교통정보 조회 자체가 서버 구분 없이 한 번에 이뤄지기 때문입니다)."
+        )
 
     # ── 오류 처리 ─────────────────────────────────────
 

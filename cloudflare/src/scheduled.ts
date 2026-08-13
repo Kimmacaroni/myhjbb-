@@ -1,7 +1,9 @@
 /**
  * wrangler.toml의 cron 설정대로 실행되는 자동 전송 두 가지:
  * - sendDailyMenu: 매일 정해진 시각에 식단표 전송 (GitHub Actions 워크플로 대체)
- * - sendTrafficAlerts: 30분마다 고속도로 정체 구간 중 새로 정체가 시작된 곳만 전송
+ * - sendTrafficAlerts: cron은 5분마다 돌지만, 실제 API 조회는
+ *   /교통정보주기설정으로 정한 주기(기본 30분)가 지났을 때만 하고, 새로
+ *   정체가 시작된 곳만 전송
  *
  * ⚠️ Cloudflare Workers 무료 요금제는 호출 1회당 하위 요청 50개 제한이
  * 있습니다. 채널을 설정한 서버가 많으면(대략 45개 이상) 이 한도에 걸려
@@ -54,13 +56,17 @@ export async function sendTrafficAlerts(env: Env): Promise<void> {
   const targets = await db.allTrafficChannels(env.DB);
   if (targets.length === 0) return;
 
+  const now = new Date();
+  if (!(await db.shouldPollTraffic(env.DB, now))) return; // 설정된 주기가 아직 안 지남
+
   let incidents;
   try {
     incidents = await fetchIncidents(env.HIGHWAY_API_KEY);
   } catch (err) {
     console.error("교통정보 조회 실패", err);
-    return;
+    return; // 시각을 기록하지 않아, 다음 cron 틱(5분 뒤)에 바로 재시도됩니다
   }
+  await db.recordTrafficPollRan(env.DB, now);
 
   // 정체가 하나도 없어도(빈 배열) 반드시 호출해야 합니다 — 그래야 이전에
   // 정체였다가 지금은 풀린 구간이 기록에서 지워지고, 나중에 다시

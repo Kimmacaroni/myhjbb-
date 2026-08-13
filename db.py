@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS traffic_seen_incidents (
 );
 
 CREATE INDEX IF NOT EXISTS idx_traffic_seen_at ON traffic_seen_incidents (seen_at);
+
+CREATE TABLE IF NOT EXISTS bot_settings (
+    key   TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -302,3 +307,23 @@ def sync_active_incidents(current_keys: list[str]) -> list[str]:
             conn.execute("DELETE FROM traffic_seen_incidents WHERE incident_key = ?", (key,))
 
     return fresh
+
+
+# ── 교통정보 확인 주기(봇 전체 공통 설정) ─────────────
+
+def get_traffic_poll_minutes(default: int) -> int:
+    """저장된 값이 없으면(처음 실행 등) default를 돌려줍니다."""
+    with _tx() as conn:
+        row = conn.execute(
+            "SELECT value FROM bot_settings WHERE key = 'traffic_poll_minutes'"
+        ).fetchone()
+    return int(row["value"]) if row else default
+
+
+def set_traffic_poll_minutes(minutes: int) -> None:
+    with _tx() as conn:
+        conn.execute(
+            """INSERT INTO bot_settings (key, value) VALUES ('traffic_poll_minutes', ?)
+               ON CONFLICT (key) DO UPDATE SET value = ?""",
+            (str(minutes), str(minutes)),
+        )

@@ -98,6 +98,46 @@ async function testShowSettingsReflectsState() {
   console.log("  /교통정보설정: 상태 반영 OK");
 }
 
+async function testSetTrafficIntervalUpdatesDbAndSettings() {
+  const env = fakeEnv();
+
+  const res = await traffic.handleSetTrafficInterval(
+    env,
+    baseInteraction({ options: [{ name: "분", value: 15 }] }),
+  );
+  assert.match(res.data.content, /15분/);
+  assert.equal(await db.getTrafficPollIntervalMinutes(env.DB), 15);
+
+  const settings = await traffic.handleTrafficSettings(env, baseInteraction());
+  assert.match(settings.data.embeds[0].fields[1].value, /15분마다/);
+
+  console.log("  /교통정보주기설정: 설정 저장 + /교통정보설정에 반영 OK");
+}
+
+async function testSetTrafficIntervalRejectsOutOfRange() {
+  const env = fakeEnv();
+
+  const tooSmall = await traffic.handleSetTrafficInterval(
+    env,
+    baseInteraction({ options: [{ name: "분", value: 1 }] }),
+  );
+  assert.match(tooSmall.data.content, /5~360/);
+  assert.equal(await db.getTrafficPollIntervalMinutes(env.DB), 30, "범위를 벗어나면 저장되면 안 됨(기본값 유지)");
+
+  console.log("  /교통정보주기설정: 범위(5~360) 벗어나면 거부 OK");
+}
+
+async function testSetTrafficIntervalRequiresPermission() {
+  const env = fakeEnv();
+  const res = await traffic.handleSetTrafficInterval(
+    env,
+    baseInteraction({ permissions: "0", options: [{ name: "분", value: 15 }] }),
+  );
+  assert.match(res.data.content, /서버 관리/);
+  assert.equal(await db.getTrafficPollIntervalMinutes(env.DB), 30, "권한 없으면 저장되면 안 됨");
+  console.log("  /교통정보주기설정: 명령어 권한 없음 거부 OK");
+}
+
 async function testPerformTrafficNowWithoutApiKey() {
   const env = fakeEnv(); // HIGHWAY_API_KEY 없음
   const interaction = { token: "tok", application_id: "app" };
@@ -224,6 +264,9 @@ await testSetChannelFailureDoesNotSave();
 await testSetChannelPermissionDenied();
 await testUnsetChannel();
 await testShowSettingsReflectsState();
+await testSetTrafficIntervalUpdatesDbAndSettings();
+await testSetTrafficIntervalRejectsOutOfRange();
+await testSetTrafficIntervalRequiresPermission();
 await testPerformTrafficNowWithoutApiKey();
 await testPerformTrafficNowReportsNoIncidents();
 await testPerformTrafficNowSendsOneTextMessage();

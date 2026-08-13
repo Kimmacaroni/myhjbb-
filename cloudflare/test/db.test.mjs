@@ -111,8 +111,39 @@ async function testSyncActiveIncidents() {
   console.log("  db.ts: 정체 구간 상태 동기화(syncActiveIncidents) — 시작/유지/해제/재발생 OK");
 }
 
+async function testTrafficPollInterval() {
+  const d1 = makeFakeD1(schema);
+
+  assert.equal(await db.getTrafficPollIntervalMinutes(d1), 30, "기본값은 30분");
+
+  await db.setTrafficPollIntervalMinutes(d1, 10);
+  assert.equal(await db.getTrafficPollIntervalMinutes(d1), 10);
+
+  const now = new Date();
+  assert.equal(await db.shouldPollTraffic(d1, now), true, "한 번도 폴링한 적 없으면 즉시 폴링해야 함");
+
+  await db.recordTrafficPollRan(d1, now);
+  assert.equal(
+    await db.shouldPollTraffic(d1, new Date(now.getTime() + 5 * 60_000)),
+    false,
+    "설정된 주기(10분)가 안 지났으면 폴링하면 안 됨",
+  );
+  assert.equal(
+    await db.shouldPollTraffic(d1, new Date(now.getTime() + 11 * 60_000)),
+    true,
+    "설정된 주기가 지났으면 폴링해야 함",
+  );
+
+  // recordTrafficPollRan은 last_run_at만 갱신하고 interval_minutes는 건드리면 안 됨
+  await db.recordTrafficPollRan(d1, new Date(now.getTime() + 20 * 60_000));
+  assert.equal(await db.getTrafficPollIntervalMinutes(d1), 10, "폴링 기록 갱신이 주기 설정을 덮어쓰면 안 됨");
+
+  console.log("  db.ts: 교통정보 확인 주기 설정/폴링 여부 판단(shouldPollTraffic) OK");
+}
+
 await testCrud();
 await testSettings();
 await testTrafficSettings();
 await testSyncActiveIncidents();
+await testTrafficPollInterval();
 console.log("db.ts 전부 통과 ✅");

@@ -145,4 +145,19 @@ export const COMMAND_DEFINITIONS = [
     name: "교통정보설정",
     description: "현재 교통정보 자동 알림 설정을 확인합니다.",
   },
+  {
+    name: "교통정보주기설정",
+    description: "고속도로 정체 정보를 확인하는 주기를 설정합니다 (기본 30분, 모든 서버 공통).",
+    default_member_permissions: PERMISSIONS.MANAGE_GUILD,
+    options: [
+      {
+        name: "분",
+        description: "확인 주기(분), 5~360 사이",
+        type: OPTION_TYPE.INTEGER,
+        required: true,
+        min_value: 5,
+        max_value: 360,
+      },
+    ],
+  },
 ];

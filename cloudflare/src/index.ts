@@ -5,8 +5,9 @@
  *          (Interactions Endpoint URL). 서명을 검증한 뒤 명령어 이름으로
  *          라우팅합니다.
  * scheduled(): wrangler.toml의 cron 설정대로 실행되는 자동 전송 —
- *          매일 식단표 전송과 30분 간격 교통정보 확인, 두 가지 스케줄을
- *          event.cron으로 구분합니다.
+ *          매일 식단표 전송과 교통정보 확인(5분마다 도는 하트비트, 실제
+ *          확인 주기는 /교통정보주기설정으로 정함) 두 가지를 event.cron
+ *          으로 구분합니다.
  */
 import { verifySignature, rest } from "./discord";
 import { sendDailyMenu, sendTrafficAlerts } from "./scheduled";
@@ -23,8 +24,8 @@ import * as help from "./commands/help";
 
 const InteractionType = { PING: 1, APPLICATION_COMMAND: 2 } as const;
 
-/** wrangler.toml [triggers].crons 의 30분 간격 교통정보 스케줄과 같아야 합니다. */
-const TRAFFIC_CRON = "*/30 * * * *";
+/** wrangler.toml [triggers].crons 의 매일 식단 스케줄과 같아야 합니다. */
+const DAILY_MENU_CRON = "0 21 * * *";
 
 type Handler = (env: Env, interaction: Interaction) => Promise<InteractionResponse>;
 
@@ -45,6 +46,7 @@ const HANDLERS: Record<string, Handler> = {
   교통정보채널설정: traffic.handleSetTrafficChannel,
   교통정보채널해제: traffic.handleUnsetTrafficChannel,
   교통정보설정: traffic.handleTrafficSettings,
+  교통정보주기설정: traffic.handleSetTrafficInterval,
 };
 
 /** 3초 안에 못 끝낼 수 있어 defer 후 백그라운드로 처리하는 명령어들. */
@@ -224,10 +226,14 @@ export async function handleRequest(request: Request, env: Env, ctx: ExecutionCo
 export default {
   fetch: handleRequest,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (event.cron === TRAFFIC_CRON) {
-      ctx.waitUntil(sendTrafficAlerts(env));
-    } else {
+    // 식단은 하루 한 번만 보내야 해서, 정확히 매일 식단 cron일 때만
+    // 보냅니다 — 트리거가 중복 등록되는 등 예상 못 한 이유로 cron
+    // 문자열이 어긋나도 식단이 잘못 여러 번 나가지 않도록 하기 위함입니다.
+    // (교통정보는 반대로 실수로 여러 번 걸려도 자체 dedup으로 안전합니다.)
+    if (event.cron === DAILY_MENU_CRON) {
       ctx.waitUntil(sendDailyMenu(env));
+    } else {
+      ctx.waitUntil(sendTrafficAlerts(env));
     }
   },
 };

@@ -159,6 +159,9 @@ async function testTrafficBroadcastsToAllGuildsAndDedupes() {
   env.HIGHWAY_API_KEY = "test-key";
   await db.setTrafficChannel(env.DB, "g1", "c1");
   await db.setTrafficChannel(env.DB, "g2", "c2");
+  // 이 테스트는 sendTrafficAlerts를 연달아 여러 번 부르므로, 설정된 확인
+  // 주기(기본 30분) 때문에 두 번째 호출부터 조용히 건너뛰지 않도록 0으로 둡니다.
+  await db.setTrafficPollIntervalMinutes(env.DB, 0);
 
   const calls1 = stubTrafficFetch({ incidents: [INCIDENT_A] });
   await scheduled.sendTrafficAlerts(env);
@@ -263,6 +266,28 @@ async function testTrafficApiFailureDoesNotThrow() {
   console.log("  sendTrafficAlerts: API 조회 실패해도 죽지 않고 조용히 건너뜀 OK");
 }
 
+async function testTrafficRespectsConfiguredPollInterval() {
+  const env = fakeEnv();
+  env.HIGHWAY_API_KEY = "test-key";
+  await db.setTrafficChannel(env.DB, "g1", "c1");
+  await db.setTrafficPollIntervalMinutes(env.DB, 30);
+
+  // 방금 폴링한 것으로 기록해 두면, 바로 다시 불러도 API 조회 자체를
+  // 건너뛰어야 함(설정된 30분이 아직 안 지났으므로).
+  await db.recordTrafficPollRan(env.DB, new Date());
+  const calls1 = stubTrafficFetch({ incidents: [INCIDENT_A] });
+  await scheduled.sendTrafficAlerts(env);
+  assert.equal(calls1.length, 0, "설정된 주기가 안 지났으면 API 조회 자체를 하면 안 됩니다");
+
+  // 마지막 폴링 시각을 31분 전으로 되돌리면(주기가 지난 것처럼) 다시 조회해야 함
+  await db.recordTrafficPollRan(env.DB, new Date(Date.now() - 31 * 60_000));
+  const calls2 = stubTrafficFetch({ incidents: [INCIDENT_A] });
+  await scheduled.sendTrafficAlerts(env);
+  assert.ok(calls2.some((c) => c.kind === "traffic"), "설정된 주기가 지났으면 다시 조회해야 합니다");
+
+  console.log("  sendTrafficAlerts: /교통정보주기설정으로 정한 주기가 지나야 실제로 조회 OK");
+}
+
 await testTrafficNoOpWithoutApiKey();
 await testTrafficNoOpWithoutTargets();
 await testTrafficBroadcastsToAllGuildsAndDedupes();
@@ -270,4 +295,5 @@ await testTrafficMergesSameRoadIntoOneEmbed();
 await testTrafficOneChannelFailureDoesNotBlockOthers();
 await testTrafficChunksMoreThan10IntoMultipleMessages();
 await testTrafficApiFailureDoesNotThrow();
+await testTrafficRespectsConfiguredPollInterval();
 console.log("scheduled.ts (교통정보) 전부 통과 ✅");
