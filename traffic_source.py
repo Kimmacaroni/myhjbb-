@@ -67,6 +67,7 @@ def parse_incidents(raw: object) -> list[dict]:
         updown = item.get("updownTypeCode")
         direction = _DIRECTION_LABEL.get(updown, updown) if updown else None
         location = " ".join(v for v in (route_name, conzone_name, direction) if v)
+        segment = " ".join(v for v in (conzone_name, direction) if v)
         speed = item.get("speed")
         speed_text = f"평균 속도 {speed}km/h" if speed else "정체 심함"
 
@@ -76,6 +77,7 @@ def parse_incidents(raw: object) -> list[dict]:
             "roadName": route_name,
             "kind": "정체",
             "startName": conzone_name,
+            "segmentText": f"{segment or '구간 정보 없음'} 정체 중 ({speed_text})",
         })
     return incidents
 
@@ -96,9 +98,19 @@ def fetch_incidents(api_key: str) -> list[dict]:
     return parse_incidents(response.json())
 
 
-def format_incident_lines(incidents: list[dict]) -> list[str]:
-    """/교통정보 명령어에서 도로별로 나누지 않고 한 메시지(텍스트)로 모아 보여줄 때 씁니다."""
-    return [f"🚧 {incident['message']}" for incident in incidents]
+def format_incident_lines_by_road(incidents: list[dict]) -> list[str]:
+    """/교통정보 명령어에서 한 메시지(텍스트) 안에 고속도로별로 묶어 보여줄 때 씁니다."""
+    groups: dict[str, list[dict]] = {}
+    for incident in incidents:
+        road = incident.get("roadName") or "도로 정보 없음"
+        groups.setdefault(road, []).append(incident)
+
+    lines: list[str] = []
+    for road, group in groups.items():
+        lines.append(f"🚧 **{road}**")
+        for incident in group:
+            lines.append(f"- {incident['segmentText']}")
+    return lines
 
 
 def make_incident_embed(incident: dict) -> discord.Embed:

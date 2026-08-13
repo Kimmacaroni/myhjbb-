@@ -26,6 +26,8 @@ export interface Incident {
   roadName?: string;
   kind?: string;
   startName?: string;
+  /** 도로명을 뺀 구간 설명("{구간명} {방향} 정체 중 (...)") — 도로별로 묶어 보여줄 때 씁니다. */
+  segmentText: string;
 }
 
 interface RawSegment {
@@ -75,6 +77,7 @@ export function parseIncidents(raw: unknown): Incident[] {
   for (const [key, item] of worstBySegment) {
     const direction = item.updownTypeCode ? DIRECTION_LABEL[item.updownTypeCode] ?? item.updownTypeCode : undefined;
     const location = [item.routeName, item.conzoneName, direction].filter(Boolean).join(" ");
+    const segment = [item.conzoneName, direction].filter(Boolean).join(" ");
     const speedText = item.speed ? `평균 속도 ${item.speed}km/h` : "정체 심함";
 
     incidents.push({
@@ -83,6 +86,7 @@ export function parseIncidents(raw: unknown): Incident[] {
       roadName: item.routeName,
       kind: "정체",
       startName: item.conzoneName,
+      segmentText: `${segment || "구간 정보 없음"} 정체 중 (${speedText})`,
     });
   }
   return incidents;
@@ -112,9 +116,30 @@ export async function fetchIncidents(
   return parseIncidents(data);
 }
 
-/** /교통정보 명령어에서 도로별로 나누지 않고 한 메시지(텍스트)로 모아 보여줄 때 씁니다. */
-export function formatIncidentLines(incidents: Incident[]): string[] {
-  return incidents.map((incident) => `🚧 ${incident.message}`);
+/**
+ * /교통정보 명령어에서 한 메시지(텍스트) 안에 고속도로별로 묶어 보여줄 때 씁니다.
+ * 예:
+ *   🚧 영동고속도로
+ *   - 신갈분기점 기점 방향 정체 중 (평균 속도 12km/h)
+ *   - 여주휴게소 종점 방향 정체 중 (평균 속도 18km/h)
+ */
+export function formatIncidentLinesByRoad(incidents: Incident[]): string[] {
+  const groups = new Map<string, Incident[]>();
+  for (const incident of incidents) {
+    const road = incident.roadName || "도로 정보 없음";
+    const group = groups.get(road);
+    if (group) group.push(incident);
+    else groups.set(road, [incident]);
+  }
+
+  const lines: string[] = [];
+  for (const [road, group] of groups) {
+    lines.push(`🚧 **${road}**`);
+    for (const incident of group) {
+      lines.push(`- ${incident.segmentText}`);
+    }
+  }
+  return lines;
 }
 
 export function makeIncidentEmbed(incident: Incident) {

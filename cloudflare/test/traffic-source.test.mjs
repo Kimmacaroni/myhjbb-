@@ -49,6 +49,9 @@ function testParseIncidentsMergesDuplicateSensorsKeepingWorstSpeed() {
   assert.equal(segmentC001.roadName, "경부선");
   assert.equal(segmentC001.kind, "정체");
   assert.equal(segmentC001.startName, "신탄진~회덕");
+  assert.ok(!segmentC001.segmentText.includes("경부선"), "segmentText에는 도로명이 빠져 있어야 함(도로별로 묶을 때 중복 방지)");
+  assert.match(segmentC001.segmentText, /신탄진~회덕/);
+  assert.match(segmentC001.segmentText, /12km\/h/);
 
   const segmentC003 = incidents.find((i) => i.key === "0025|C003|E");
   assert.ok(segmentC003);
@@ -79,6 +82,22 @@ function testMakeIncidentEmbed() {
   assert.match(embed.description, /평균 속도 12km\/h/);
   assert.equal(embed.fields[0].value, "신탄진~회덕");
   console.log("  makeIncidentEmbed: 임베드 구조 OK");
+}
+
+function testFormatIncidentLinesByRoadGroupsSameRoad() {
+  const incidents = traffic.parseIncidents(SAMPLE_LIST);
+  const lines = traffic.formatIncidentLinesByRoad(incidents);
+
+  const gyeongbuHeaderIndex = lines.findIndex((l) => l.includes("경부선"));
+  const honamHeaderIndex = lines.findIndex((l) => l.includes("호남선"));
+  assert.ok(gyeongbuHeaderIndex >= 0 && honamHeaderIndex >= 0, "도로명이 헤더로 나와야 함");
+
+  // 경부선 구간은 경부선 헤더 바로 다음 줄에, 도로명 반복 없이 나와야 함
+  const gyeongbuSegmentLine = lines[gyeongbuHeaderIndex + 1];
+  assert.match(gyeongbuSegmentLine, /신탄진~회덕/);
+  assert.ok(!gyeongbuSegmentLine.includes("경부선"), "구간 줄에는 도로명이 중복되면 안 됨");
+
+  console.log("  formatIncidentLinesByRoad: 같은 고속도로끼리 묶어서 표시 OK");
 }
 
 async function testFetchIncidentsSendsKeyAndType() {
@@ -120,6 +139,7 @@ async function testFetchIncidentsPrefersGivenFetcher() {
 testParseIncidentsMergesDuplicateSensorsKeepingWorstSpeed();
 testParseIncidentsHandlesUnexpectedShape();
 testMakeIncidentEmbed();
+testFormatIncidentLinesByRoadGroupsSameRoad();
 await testFetchIncidentsSendsKeyAndType();
 await testFetchIncidentsHandlesHttpError();
 await testFetchIncidentsPrefersGivenFetcher();
