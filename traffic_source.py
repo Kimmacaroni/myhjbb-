@@ -121,3 +121,22 @@ def make_incident_embed(incident: dict) -> discord.Embed:
     if incident.get("startName"):
         embed.add_field(name="구간", value=incident["startName"], inline=False)
     return embed
+
+
+def make_road_embeds(incidents: list[dict]) -> list[discord.Embed]:
+    """5분마다 자동으로 보내는 알림(cogs/traffic.py)에서, 같은 고속도로의
+    구간들을 임베드 하나로 묶어 보여줄 때 씁니다 — 도로마다 임베드가
+    따로따로 오지 않도록."""
+    groups: dict[str, list[dict]] = {}
+    for incident in incidents:
+        road = incident.get("roadName") or "도로 정보 없음"
+        groups.setdefault(road, []).append(incident)
+
+    return [
+        discord.Embed(
+            title=f"🚧 {road}",
+            description="\n".join(f"- {incident['segmentText']}" for incident in group),
+            colour=0xED4245,
+        )
+        for road, group in groups.items()
+    ]

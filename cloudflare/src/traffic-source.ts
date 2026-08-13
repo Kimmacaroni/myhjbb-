@@ -152,3 +152,24 @@ export function makeIncidentEmbed(incident: Incident) {
     fields: incident.startName ? [{ name: "구간", value: incident.startName, inline: false }] : undefined,
   };
 }
+
+/**
+ * 5분마다 자동으로 보내는 알림(scheduled.ts)에서, 같은 고속도로의 구간들을
+ * 임베드 하나로 묶어 보여줄 때 씁니다 — 도로마다 임베드가 따로따로
+ * 오지 않도록.
+ */
+export function makeRoadEmbeds(incidents: Incident[]) {
+  const groups = new Map<string, Incident[]>();
+  for (const incident of incidents) {
+    const road = incident.roadName || "도로 정보 없음";
+    const group = groups.get(road);
+    if (group) group.push(incident);
+    else groups.set(road, [incident]);
+  }
+
+  return [...groups.entries()].map(([road, group]) => ({
+    title: `🚧 ${road}`,
+    description: group.map((incident) => `- ${incident.segmentText}`).join("\n"),
+    color: 0xed4245,
+  }));
+}

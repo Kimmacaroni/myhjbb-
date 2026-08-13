@@ -12,7 +12,7 @@
 import * as db from "./db";
 import { sendChannelMessage } from "./discord";
 import { fetchMenu, makeMenuEmbed } from "./menu-source";
-import { fetchIncidents, makeIncidentEmbed, type Incident } from "./traffic-source";
+import { fetchIncidents, makeRoadEmbeds, type Incident } from "./traffic-source";
 import type { Env } from "./types";
 
 const MAX_EMBEDS = 10; // 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
@@ -68,16 +68,18 @@ export async function sendTrafficAlerts(env: Env): Promise<void> {
   const newKeys = new Set(await db.syncActiveIncidents(env.DB, incidents.map((i) => i.key)));
   if (newKeys.size === 0) return;
 
-  // 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 한 번에 새로
-  // 정체가 시작된 구간이 많으면(예: 처음 켰을 때, 명절 정체 등) 여러
-  // 메시지로 나눠서 전부 보냅니다 — 뒤쪽 구간이 조용히 누락되면 안 됩니다.
+  // 도로마다 임베드를 따로 보내지 않고, 같은 고속도로의 구간은 임베드
+  // 하나로 묶습니다. 디스코드는 메시지 하나에 임베드 10개까지만
+  // 허용하므로, 묶고도 도로 수가 많으면(예: 처음 켰을 때, 명절 정체 등)
+  // 여러 메시지로 나눠서 전부 보냅니다 — 뒤쪽 도로가 조용히 누락되면
+  // 안 됩니다.
   const fresh: Incident[] = incidents.filter((i) => newKeys.has(i.key));
-  const chunks = chunk(fresh, MAX_EMBEDS);
+  const chunks = chunk(makeRoadEmbeds(fresh), MAX_EMBEDS);
 
   for (const { guildId, channelId } of targets) {
     for (const group of chunks) {
       try {
-        await sendChannelMessage(env.DISCORD_TOKEN, channelId, { embeds: group.map(makeIncidentEmbed) });
+        await sendChannelMessage(env.DISCORD_TOKEN, channelId, { embeds: group });
       } catch (err) {
         console.error(`교통정보 알림 실패 (guild ${guildId}, channel ${channelId})`, err);
         break; // 이 채널에 못 보내는 상태면 나머지 묶음도 같은 이유로 실패할 테니 건너뜁니다

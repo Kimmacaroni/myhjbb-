@@ -101,11 +101,13 @@ class Traffic(commands.Cog):
             return
 
         fresh = [i for i in incidents if i["key"] in new_keys]
-        embed_groups = _chunk([traffic_source.make_incident_embed(i) for i in fresh], MAX_EMBEDS)
+        # 도로마다 임베드를 따로 보내지 않고, 같은 고속도로의 구간은
+        # 임베드 하나로 묶습니다.
+        embed_groups = _chunk(traffic_source.make_road_embeds(fresh), MAX_EMBEDS)
 
-        # 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 한 번에
-        # 새로 정체가 시작된 구간이 많으면 여러 메시지로 나눠서 전부
-        # 보냅니다 — 뒤쪽 구간이 조용히 누락되면 안 됩니다.
+        # 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 묶고도
+        # 도로 수가 많으면 여러 메시지로 나눠서 전부 보냅니다 — 뒤쪽
+        # 도로가 조용히 누락되면 안 됩니다.
         for channel in channels:
             for embeds in embed_groups:
                 try:

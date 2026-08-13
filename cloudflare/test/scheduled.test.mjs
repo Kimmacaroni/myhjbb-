@@ -114,6 +114,7 @@ console.log("scheduled.ts (식단) 전부 통과 ✅");
 const HIGHWAY_URL_PREFIX = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest";
 const INCIDENT_A = { routeNo: "a", conzoneId: "a", routeName: "경부선", conzoneName: "A구간", grade: "3" };
 const INCIDENT_B = { routeNo: "b", conzoneId: "b", routeName: "서해안선", conzoneName: "B구간", grade: "3" };
+const INCIDENT_C = { routeNo: "c", conzoneId: "c", routeName: "경부선", conzoneName: "C구간", grade: "3" };
 
 function stubTrafficFetch({ incidents = [INCIDENT_A], failChannels = [] } = {}) {
   const calls = [];
@@ -125,8 +126,8 @@ function stubTrafficFetch({ incidents = [INCIDENT_A], failChannels = [] } = {}) 
     }
     const m = u.match(/\/channels\/([^/]+)\/messages$/);
     if (m) {
-      const embedCount = init?.body ? JSON.parse(init.body).embeds.length : 0;
-      calls.push({ kind: "send", channelId: m[1], embedCount });
+      const embeds = init?.body ? JSON.parse(init.body).embeds : [];
+      calls.push({ kind: "send", channelId: m[1], embedCount: embeds.length, embeds });
       if (failChannels.includes(m[1])) return new Response("금지됨", { status: 403 });
       return new Response("{}", { status: 200 });
     }
@@ -191,6 +192,26 @@ async function testTrafficBroadcastsToAllGuildsAndDedupes() {
   console.log("  sendTrafficAlerts: 모든 서버 알림 + 정체 유지 중복 방지 + 해제/재발생 감지 OK");
 }
 
+async function testTrafficMergesSameRoadIntoOneEmbed() {
+  const env = fakeEnv();
+  env.HIGHWAY_API_KEY = "test-key";
+  await db.setTrafficChannel(env.DB, "g1", "c1");
+
+  // A와 C는 같은 고속도로(경부선)의 서로 다른 구간, B는 다른 고속도로.
+  const calls = stubTrafficFetch({ incidents: [INCIDENT_A, INCIDENT_B, INCIDENT_C] });
+  await scheduled.sendTrafficAlerts(env);
+
+  const [sent] = calls.filter((c) => c.kind === "send");
+  assert.equal(sent.embedCount, 2, "경부선 구간 2개는 임베드 하나로 합치고, 서해안선은 별도 임베드로 총 2개여야 함");
+
+  const gyeongbuEmbed = sent.embeds.find((e) => e.title.includes("경부선"));
+  assert.ok(gyeongbuEmbed, "경부선 임베드가 있어야 함");
+  assert.match(gyeongbuEmbed.description, /A구간/);
+  assert.match(gyeongbuEmbed.description, /C구간/);
+
+  console.log("  sendTrafficAlerts: 같은 고속도로 구간은 임베드 하나로 합쳐서 전송 OK");
+}
+
 async function testTrafficOneChannelFailureDoesNotBlockOthers() {
   const env = fakeEnv();
   env.HIGHWAY_API_KEY = "test-key";
@@ -209,11 +230,13 @@ async function testTrafficChunksMoreThan10IntoMultipleMessages() {
   env.HIGHWAY_API_KEY = "test-key";
   await db.setTrafficChannel(env.DB, "g1", "c1");
 
-  // 디스코드 임베드 상한(10개)을 넘는 13개 구간이 한 번에 새로 잡히는 경우
+  // 디스코드 임베드 상한(10개)을 넘는, 서로 다른 고속도로 13개가 한 번에
+  // 새로 잡히는 경우 (같은 도로였다면 하나로 합쳐지므로 일부러 도로를
+  // 전부 다르게 함)
   const many = Array.from({ length: 13 }, (_, i) => ({
     routeNo: `r${i}`,
     conzoneId: `c${i}`,
-    routeName: "경부선",
+    routeName: `도로${i}`,
     conzoneName: `${i}구간`,
     grade: "3",
   }));
@@ -222,8 +245,8 @@ async function testTrafficChunksMoreThan10IntoMultipleMessages() {
   await scheduled.sendTrafficAlerts(env);
 
   const sends = calls.filter((c) => c.kind === "send");
-  assert.equal(sends.length, 2, "13개면 메시지 2개(10+3)로 나뉘어 보내져야 함");
-  assert.deepEqual(sends.map((c) => c.embedCount).sort((a, b) => a - b), [3, 10], "뒤쪽 구간이 조용히 누락되면 안 됨");
+  assert.equal(sends.length, 2, "13개 도로면 메시지 2개(10+3)로 나뉘어 보내져야 함");
+  assert.deepEqual(sends.map((c) => c.embedCount).sort((a, b) => a - b), [3, 10], "뒤쪽 도로가 조용히 누락되면 안 됨");
 
   console.log("  sendTrafficAlerts: 임베드 10개 초과 시 여러 메시지로 나눠 전부 전송 OK");
 }
@@ -243,6 +266,7 @@ async function testTrafficApiFailureDoesNotThrow() {
 await testTrafficNoOpWithoutApiKey();
 await testTrafficNoOpWithoutTargets();
 await testTrafficBroadcastsToAllGuildsAndDedupes();
+await testTrafficMergesSameRoadIntoOneEmbed();
 await testTrafficOneChannelFailureDoesNotBlockOthers();
 await testTrafficChunksMoreThan10IntoMultipleMessages();
 await testTrafficApiFailureDoesNotThrow();
