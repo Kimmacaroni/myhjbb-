@@ -96,6 +96,11 @@ def fetch_incidents(api_key: str) -> list[dict]:
     return parse_incidents(response.json())
 
 
+def format_incident_lines(incidents: list[dict]) -> list[str]:
+    """/교통정보 명령어에서 도로별로 나누지 않고 한 메시지(텍스트)로 모아 보여줄 때 씁니다."""
+    return [f"🚧 {incident['message']}" for incident in incidents]
+
+
 def make_incident_embed(incident: dict) -> discord.Embed:
     title_parts = [p for p in (incident.get("roadName"), incident.get("kind")) if p]
     title = "🚧 " + (" · ".join(title_parts) if title_parts else "고속도로 정체")

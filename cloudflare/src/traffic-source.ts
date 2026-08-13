@@ -112,6 +112,11 @@ export async function fetchIncidents(
   return parseIncidents(data);
 }
 
+/** /교통정보 명령어에서 도로별로 나누지 않고 한 메시지(텍스트)로 모아 보여줄 때 씁니다. */
+export function formatIncidentLines(incidents: Incident[]): string[] {
+  return incidents.map((incident) => `🚧 ${incident.message}`);
+}
+
 export function makeIncidentEmbed(incident: Incident) {
   const titleParts = [incident.roadName, incident.kind].filter(Boolean);
 

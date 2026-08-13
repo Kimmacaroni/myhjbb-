@@ -132,7 +132,7 @@ async function testPerformTrafficNowReportsNoIncidents() {
   console.log("  /교통정보: 심한 정체 없음 → 안내 메시지 OK");
 }
 
-async function testPerformTrafficNowChunksMoreThan10() {
+async function testPerformTrafficNowSendsOneTextMessage() {
   const env = fakeEnv({ HIGHWAY_API_KEY: "test-key" });
   const interaction = { token: "tok", application_id: "app" };
 
@@ -151,11 +151,11 @@ async function testPerformTrafficNowChunksMoreThan10() {
       return new Response(JSON.stringify({ list: many }), { status: 200 });
     }
     if (u.pathname.endsWith("/messages/@original") && init.method === "PATCH") {
-      sends.push({ kind: "edit", embedCount: JSON.parse(init.body).embeds.length });
+      sends.push({ kind: "edit", content: JSON.parse(init.body).content });
       return new Response("{}", { status: 200 });
     }
     if (u.pathname.includes("/webhooks/") && init.method === "POST") {
-      sends.push({ kind: "followup", embedCount: JSON.parse(init.body).embeds.length });
+      sends.push({ kind: "followup", content: JSON.parse(init.body).content });
       return new Response("{}", { status: 200 });
     }
     throw new Error("예상치 못한 요청: " + u);
@@ -163,13 +163,60 @@ async function testPerformTrafficNowChunksMoreThan10() {
 
   await traffic.performTrafficNow(env, interaction);
 
-  assert.equal(sends.length, 2, "13개면 응답 편집 1번 + 후속 메시지 1번, 총 2번 보내야 함");
+  assert.equal(sends.length, 1, "도로별로 따로 보내지 않고 한 메시지(텍스트)로 모아 응답 편집 1번만 보내야 함");
   assert.equal(sends[0].kind, "edit");
-  assert.equal(sends[0].embedCount, 10);
-  assert.equal(sends[1].kind, "followup");
-  assert.equal(sends[1].embedCount, 3, "뒤쪽 구간이 조용히 누락되면 안 됨");
+  assert.doesNotMatch(sends[0].content, /embed/i, "임베드가 아니라 텍스트(content)로 와야 함");
+  for (let i = 0; i < 13; i++) {
+    assert.match(sends[0].content, new RegExp(`${i}구간`), `${i}구간이 누락되면 안 됨`);
+  }
 
-  console.log("  /교통정보: 임베드 10개 초과 시 편집 응답 + 후속 메시지로 나눠 전부 전송 OK");
+  console.log("  /교통정보: 도로별로 나누지 않고 한 메시지(텍스트)로 모아 전송 OK");
+}
+
+async function testPerformTrafficNowSplitsWhenTextTooLong() {
+  const env = fakeEnv({ HIGHWAY_API_KEY: "test-key" });
+  const interaction = { token: "tok", application_id: "app" };
+
+  // 한 줄이 대략 40자 안팎이라 100개면 2000자를 넘겨 메시지가 나뉘어야 함.
+  const many = Array.from({ length: 100 }, (_, i) => ({
+    routeNo: `r${i}`,
+    conzoneId: `c${i}`,
+    routeName: "경부선",
+    conzoneName: `아주긴구간이름표시용텍스트${i}`,
+    grade: "3",
+  }));
+
+  const sends = [];
+  globalThis.fetch = async (url, init) => {
+    const u = new URL(url.toString());
+    if (u.hostname === "data.ex.co.kr") {
+      return new Response(JSON.stringify({ list: many }), { status: 200 });
+    }
+    if (u.pathname.endsWith("/messages/@original") && init.method === "PATCH") {
+      sends.push({ kind: "edit", content: JSON.parse(init.body).content });
+      return new Response("{}", { status: 200 });
+    }
+    if (u.pathname.includes("/webhooks/") && init.method === "POST") {
+      sends.push({ kind: "followup", content: JSON.parse(init.body).content });
+      return new Response("{}", { status: 200 });
+    }
+    throw new Error("예상치 못한 요청: " + u);
+  };
+
+  await traffic.performTrafficNow(env, interaction);
+
+  assert.ok(sends.length > 1, "2000자를 넘으면 편집 응답 + 후속 메시지로 나눠 보내야 함");
+  assert.equal(sends[0].kind, "edit");
+  assert.ok(sends.slice(1).every((s) => s.kind === "followup"));
+  for (const s of sends) {
+    assert.ok(s.content.length <= 2000, "메시지 하나가 디스코드 글자 수 제한(2000자)을 넘으면 안 됨");
+  }
+  const combined = sends.map((s) => s.content).join("\n");
+  for (let i = 0; i < 100; i++) {
+    assert.match(combined, new RegExp(`아주긴구간이름표시용텍스트${i}(?!\\d)`), `${i}번째 구간이 누락되면 안 됨`);
+  }
+
+  console.log("  /교통정보: 2000자 넘으면 편집 응답 + 후속 메시지로 나눠 전부 전송 OK");
 }
 
 await testSetChannelSuccessProbesBeforeSaving();
@@ -179,5 +226,6 @@ await testUnsetChannel();
 await testShowSettingsReflectsState();
 await testPerformTrafficNowWithoutApiKey();
 await testPerformTrafficNowReportsNoIncidents();
-await testPerformTrafficNowChunksMoreThan10();
+await testPerformTrafficNowSendsOneTextMessage();
+await testPerformTrafficNowSplitsWhenTextTooLong();
 console.log("traffic.ts 명령어 전부 통과 ✅");

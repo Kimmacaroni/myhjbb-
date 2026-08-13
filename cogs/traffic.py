@@ -21,10 +21,27 @@ import traffic_source
 log = logging.getLogger(__name__)
 
 MAX_EMBEDS = 10  # 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
+MAX_MESSAGE_LENGTH = 2000  # 디스코드 메시지 하나의 최대 글자 수
 
 
 def _chunk(items: list, size: int) -> list[list]:
     return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _chunk_text(lines: list[str], max_length: int) -> list[str]:
+    """줄 단위로 이어붙이되, max_length를 넘기지 않도록 여러 메시지로 나눕니다(줄 중간에서 자르지 않음)."""
+    chunks: list[str] = []
+    current = ""
+    for line in lines:
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > max_length and current:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 @app_commands.guild_only()
@@ -135,10 +152,14 @@ class Traffic(commands.Cog):
             await interaction.followup.send("✅ 현재 심한 정체 구간이 없습니다.")
             return
 
-        # 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 구간이
-        # 많으면 여러 메시지로 나눠서 전부 보냅니다.
-        for embeds in _chunk([traffic_source.make_incident_embed(i) for i in incidents], MAX_EMBEDS):
-            await interaction.followup.send(embeds=embeds)
+        # 도로별로 임베드를 따로 보내던 방식에서, /교통정보로 직접 조회할
+        # 때는 한 메시지 안에 텍스트로 모아 보여주는 방식으로 바꿨습니다
+        # (5분마다 자동으로 오는 알림은 poll_traffic에서 기존 임베드 방식
+        # 그대로 유지). 디스코드 메시지 글자 수 제한(2000자)을 넘을 만큼
+        # 구간이 많을 때만 예외적으로 여러 메시지로 나눠 보냅니다.
+        lines = [f"🚧 현재 심한 정체 구간 ({len(incidents)}건)", *traffic_source.format_incident_lines(incidents)]
+        for content in _chunk_text(lines, MAX_MESSAGE_LENGTH):
+            await interaction.followup.send(content=content)
 
     @app_commands.command(
         name="교통정보채널설정", description="고속도로 정체 구간을 자동으로 알릴 채널을 지정합니다."

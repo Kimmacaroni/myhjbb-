@@ -6,15 +6,26 @@
 import * as db from "../db";
 import { sendChannelMessage, editOriginalResponse, createFollowupMessage, DiscordRestError, EPHEMERAL } from "../discord";
 import { requirePermission, PERMISSIONS } from "../permissions";
-import { fetchIncidents, makeIncidentEmbed } from "../traffic-source";
+import { fetchIncidents, formatIncidentLines } from "../traffic-source";
 import type { Env, Interaction, InteractionResponse } from "../types";
 import { getOption } from "../interactions";
 
-const MAX_EMBEDS = 10; // 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
+const MAX_MESSAGE_LENGTH = 2000; // 디스코드 메시지 하나의 최대 글자 수
 
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+/** 줄 단위로 이어붙이되, maxLength를 넘기지 않도록 여러 메시지로 나눕니다(줄 중간에서 자르지 않음). */
+function chunkLines(lines: string[], maxLength: number): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  for (const line of lines) {
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > maxLength && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
   return chunks;
 }
 
@@ -36,16 +47,16 @@ export async function performTrafficNow(env: Env, interaction: Interaction): Pro
       return;
     }
 
-    // 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 구간이 많으면
-    // 첫 응답 편집 이후 나머지는 후속 메시지(followup)로 나눠 보냅니다.
-    const [first, ...rest] = chunk(incidents, MAX_EMBEDS);
-    await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, {
-      embeds: first.map(makeIncidentEmbed),
-    });
-    for (const group of rest) {
-      await createFollowupMessage(env.DISCORD_APPLICATION_ID, interaction.token, {
-        embeds: group.map(makeIncidentEmbed),
-      });
+    // 도로별로 임베드를 따로 보내던 방식에서, /교통정보로 직접 조회할 때는
+    // 한 메시지 안에 텍스트로 모아 보여주는 방식으로 바꿨습니다(5분마다
+    // 자동으로 오는 알림은 기존 임베드 방식 그대로 유지 — scheduled.ts).
+    // 디스코드 메시지 글자 수 제한(2000자)을 넘을 만큼 구간이 많을 때만
+    // 예외적으로 여러 메시지로 나눠 보냅니다.
+    const lines = [`🚧 현재 심한 정체 구간 (${incidents.length}건)`, ...formatIncidentLines(incidents)];
+    const [first, ...rest] = chunkLines(lines, MAX_MESSAGE_LENGTH);
+    await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, { content: first });
+    for (const content of rest) {
+      await createFollowupMessage(env.DISCORD_APPLICATION_ID, interaction.token, { content });
     }
   } catch (err) {
     await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, {
