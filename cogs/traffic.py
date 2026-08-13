@@ -79,7 +79,7 @@ class Traffic(commands.Cog):
 
     # ── 자동 알림 ─────────────────────────────────────
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=30)
     async def poll_traffic(self):
         channels = self.targets()
         if not channels:
@@ -156,7 +156,7 @@ class Traffic(commands.Cog):
 
         # 도로별로 임베드를 따로 보내던 방식에서, /교통정보로 직접 조회할
         # 때는 한 메시지 안에 고속도로별로 묶어 텍스트로 모아 보여주는
-        # 방식으로 바꿨습니다(5분마다 자동으로 오는 알림은 poll_traffic에서
+        # 방식으로 바꿨습니다(30분마다 자동으로 오는 알림은 poll_traffic에서
         # 기존 임베드 방식 그대로 유지). 디스코드 메시지 글자 수 제한(2000자)을
         # 넘을 만큼 구간이 많을 때만 예외적으로 여러 메시지로 나눠 보냅니다.
         lines = [

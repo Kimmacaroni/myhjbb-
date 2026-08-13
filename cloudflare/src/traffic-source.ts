@@ -154,7 +154,7 @@ export function makeIncidentEmbed(incident: Incident) {
 }
 
 /**
- * 5분마다 자동으로 보내는 알림(scheduled.ts)에서, 같은 고속도로의 구간들을
+ * 30분마다 자동으로 보내는 알림(scheduled.ts)에서, 같은 고속도로의 구간들을
  * 임베드 하나로 묶어 보여줄 때 씁니다 — 도로마다 임베드가 따로따로
  * 오지 않도록.
  */

@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
 # 매일 새벽 6시(KST) = UTC 21시(GitHub Actions 워크플로와 같은 시각, 식단표
-# 전송용)와, 5분마다(교통정보 돌발상황 확인용) 두 가지 스케줄입니다.
+# 전송용)와, 30분마다(교통정보 돌발상황 확인용) 두 가지 스케줄입니다.
 # scheduled()는 event.cron 값으로 어느 쪽인지 구분합니다 — 문자열을 바꾸면
 # src/index.ts의 TRAFFIC_CRON 상수도 같이 바꿔야 합니다.
 #
@@ -11,7 +11,7 @@ compatibility_date = "2024-11-01"
 # 있으니, 대시보드 Settings → Triggers → Cron Triggers 에서도 확인/추가해
 # 주세요.
 [triggers]
-crons = ["0 21 * * *", "*/5 * * * *"]
+crons = ["0 21 * * *", "*/30 * * * *"]
 
 [[d1_databases]]
 binding = "DB"

@@ -1,7 +1,7 @@
 /**
  * wrangler.toml의 cron 설정대로 실행되는 자동 전송 두 가지:
  * - sendDailyMenu: 매일 정해진 시각에 식단표 전송 (GitHub Actions 워크플로 대체)
- * - sendTrafficAlerts: 5분마다 고속도로 정체 구간 중 새로 정체가 시작된 곳만 전송
+ * - sendTrafficAlerts: 30분마다 고속도로 정체 구간 중 새로 정체가 시작된 곳만 전송
  *
  * ⚠️ Cloudflare Workers 무료 요금제는 호출 1회당 하위 요청 50개 제한이
  * 있습니다. 채널을 설정한 서버가 많으면(대략 45개 이상) 이 한도에 걸려

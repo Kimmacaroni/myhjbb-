@@ -480,9 +480,9 @@ async function testScheduledBranchesByCron() {
 
   calls.length = 0;
   const { ctx: trafficCtx, tasks: trafficTasks } = fakeCtx();
-  await worker.scheduled({ cron: "*/5 * * * *" }, env, trafficCtx);
+  await worker.scheduled({ cron: "*/30 * * * *" }, env, trafficCtx);
   await Promise.all(trafficTasks);
-  assert.deepEqual(calls, ["traffic"], "5분 스케줄은 교통정보만 처리해야 함");
+  assert.deepEqual(calls, ["traffic"], "30분 스케줄은 교통정보만 처리해야 함");
 
   console.log("  scheduled(): event.cron 값으로 식단/교통정보 스케줄 구분 OK");
 }

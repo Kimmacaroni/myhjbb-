@@ -124,7 +124,7 @@ def make_incident_embed(incident: dict) -> discord.Embed:
 
 
 def make_road_embeds(incidents: list[dict]) -> list[discord.Embed]:
-    """5분마다 자동으로 보내는 알림(cogs/traffic.py)에서, 같은 고속도로의
+    """30분마다 자동으로 보내는 알림(cogs/traffic.py)에서, 같은 고속도로의
     구간들을 임베드 하나로 묶어 보여줄 때 씁니다 — 도로마다 임베드가
     따로따로 오지 않도록."""
     groups: dict[str, list[dict]] = {}

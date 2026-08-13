@@ -5,7 +5,7 @@
  *          (Interactions Endpoint URL). 서명을 검증한 뒤 명령어 이름으로
  *          라우팅합니다.
  * scheduled(): wrangler.toml의 cron 설정대로 실행되는 자동 전송 —
- *          매일 식단표 전송과 5분 간격 교통정보 확인, 두 가지 스케줄을
+ *          매일 식단표 전송과 30분 간격 교통정보 확인, 두 가지 스케줄을
  *          event.cron으로 구분합니다.
  */
 import { verifySignature, rest } from "./discord";
@@ -23,8 +23,8 @@ import * as help from "./commands/help";
 
 const InteractionType = { PING: 1, APPLICATION_COMMAND: 2 } as const;
 
-/** wrangler.toml [triggers].crons 의 5분 간격 교통정보 스케줄과 같아야 합니다. */
-const TRAFFIC_CRON = "*/5 * * * *";
+/** wrangler.toml [triggers].crons 의 30분 간격 교통정보 스케줄과 같아야 합니다. */
+const TRAFFIC_CRON = "*/30 * * * *";
 
 type Handler = (env: Env, interaction: Interaction) => Promise<InteractionResponse>;
 

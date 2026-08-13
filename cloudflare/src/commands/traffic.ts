@@ -49,7 +49,7 @@ export async function performTrafficNow(env: Env, interaction: Interaction): Pro
 
     // 도로별로 임베드를 따로 보내던 방식에서, /교통정보로 직접 조회할 때는
     // 한 메시지 안에 고속도로별로 묶어 텍스트로 모아 보여주는 방식으로
-    // 바꿨습니다(5분마다 자동으로 오는 알림은 기존 임베드 방식 그대로
+    // 바꿨습니다(30분마다 자동으로 오는 알림은 기존 임베드 방식 그대로
     // 유지 — scheduled.ts). 디스코드 메시지 글자 수 제한(2000자)을 넘을
     // 만큼 구간이 많을 때만 예외적으로 여러 메시지로 나눠 보냅니다.
     const lines = [`현재 심한 정체 구간 (${incidents.length}건)`, ...formatIncidentLinesByRoad(incidents)];
@@ -74,7 +74,7 @@ export async function handleSetTrafficChannel(env: Env, interaction: Interaction
 
   try {
     await sendChannelMessage(env.DISCORD_TOKEN, channelId, {
-      content: "✅ 이 채널에 고속도로 심한 정체 구간이 새로 생기면 5분 이내로 알려드립니다. (설정 확인 메시지)",
+      content: "✅ 이 채널에 고속도로 심한 정체 구간이 새로 생기면 30분 이내로 알려드립니다. (설정 확인 메시지)",
     });
   } catch (err) {
     const reason =
@@ -127,7 +127,7 @@ export async function handleTrafficSettings(env: Env, interaction: Interaction):
           color: 0xe67e22,
           fields: [
             { name: "상태", value: status, inline: false },
-            { name: "확인 주기", value: "5분마다", inline: false },
+            { name: "확인 주기", value: "30분마다", inline: false },
           ],
         },
       ],
