@@ -131,6 +131,12 @@ function testIsCapitalRegionSegment() {
   assert.equal(traffic.isCapitalRegionSegment("경부선", "신탄진IC-회덕JC"), false, "대전은 수도권이 아님");
   assert.equal(traffic.isCapitalRegionSegment("영동선", "용인JC-양지IC"), true, "용인은 수도권");
   assert.equal(traffic.isCapitalRegionSegment("영동선", "새말IC-둔내IC"), false, "횡성(강원)은 수도권이 아님");
+  assert.equal(traffic.isCapitalRegionSegment("영동선", "원주IC-남원주IC"), false, "원주(강원)는 수도권이 아님");
+  assert.equal(
+    traffic.isCapitalRegionSegment("서울양양선", "춘천JC-남춘천IC"),
+    false,
+    "춘천(강원)은 수도권이 아님 — 가평 다음이 춘천이라 놓치기 쉬움",
+  );
   // 도로 자체가 수도권 밖이면 구간 이름과 무관하게 제외
   assert.equal(traffic.isCapitalRegionSegment("호남선", "정읍~장성"), false);
   // 구간 이름이 없어도(undefined) 도로가 수도권이면 통과
