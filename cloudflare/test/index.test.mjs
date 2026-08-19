@@ -330,6 +330,42 @@ async function testDebugTrafficRequiresApiKeyConfigured() {
   console.log("  /setup/debug-menu?target=traffic: HIGHWAY_API_KEY 미설정 → 400 + 요청 미발생 OK");
 }
 
+async function testDebugTrafficRelaysToGithubWhenTokenConfigured() {
+  const { publicKeyHex } = await makeKeypair();
+  const env = fakeEnv(publicKeyHex);
+  env.SETUP_TOKEN = "correct-token";
+  env.HIGHWAY_API_KEY = "super-secret-key";
+  env.GITHUB_RELAY_TOKEN = "gh-tok";
+  const { ctx } = fakeCtx();
+
+  const githubCalls = [];
+  globalThis.fetch = async (url, init) => {
+    const u = new URL(url.toString());
+    if (u.hostname === "data.ex.co.kr") {
+      return new Response('{"list":[]}', { status: 200, statusText: "OK" });
+    }
+    if (u.hostname === "api.github.com") {
+      githubCalls.push({ method: init?.method ?? "GET", url: u.toString() });
+      if ((init?.method ?? "GET") === "GET") return new Response("", { status: 404 });
+      return new Response("{}", { status: 201 });
+    }
+    throw new Error("예상치 못한 요청: " + u);
+  };
+
+  const res = await handleRequest(
+    new Request("https://example.com/setup/debug-menu?token=correct-token&target=traffic"),
+    env,
+    ctx,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(githubCalls.length, 2, "GitHub 조회(GET) + 기록(PUT) 두 번 호출해야 함");
+  assert.ok(githubCalls.some((c) => c.url.includes("cloudflare/debug/traffic.json")));
+  const text = await res.text();
+  assert.match(text, /\[GitHub 기록:.*traffic\.json/s);
+
+  console.log("  /setup/debug-menu?target=traffic: GITHUB_RELAY_TOKEN 있으면 결과를 저장소에 기록 OK");
+}
+
 async function testDebugMenuAcceptsCustomUrl() {
   const { publicKeyHex } = await makeKeypair();
   const env = fakeEnv(publicKeyHex);
@@ -493,6 +529,7 @@ await testDebugMenuRequiresTokenAndReturnsRawBody();
 await testDebugMenuUsesServiceBindingWhenAvailable();
 await testDebugTrafficUsesServerSideKeyWithoutExposingIt();
 await testDebugTrafficRequiresApiKeyConfigured();
+await testDebugTrafficRelaysToGithubWhenTokenConfigured();
 await testDebugMenuAcceptsCustomUrl();
 await testRejectsNonPost();
 await testRejectsInvalidSignature();

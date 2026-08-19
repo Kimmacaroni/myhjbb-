@@ -238,3 +238,28 @@ https://honorary-bot.<subdomain>.workers.dev/setup/debug-menu?token=<SETUP_TOKEN
 응답에 있는 구간이 10개를 넘으면(정체가 몰리는 시간대, 기능을 처음 켰을
 때 등) 디스코드 메시지 하나(임베드 최대 10개)로는 다 못 담아서, 여러
 메시지로 나눠 전부 보냅니다 — 뒤쪽 구간이 조용히 누락되지 않습니다.
+
+### `/setup/debug-menu` 결과를 GitHub에 자동 기록하기 (붙여넣기 없이 확인)
+
+개발 환경에 따라 배포된 Worker 주소로 직접 나가는 네트워크가 막혀 있어,
+`/setup/debug-menu` 결과를 사람이 직접 열어서 복사·붙여넣기 해야 할 수
+있습니다. `GITHUB_RELAY_TOKEN` secret을 등록해 두면, 그 결과를 이
+저장소의 `cloudflare/debug/{menu,traffic}.json` 파일에 Worker가 직접
+기록해 줘서 붙여넣지 않고도 GitHub에서 바로 확인할 수 있습니다.
+
+1. GitHub → 오른쪽 위 프로필 → **Settings** → **Developer settings** →
+   **Personal access tokens** → **Fine-grained tokens** → **Generate new token**
+2. **Repository access**를 이 저장소 하나만 선택하고, **Permissions**에서
+   **Contents**를 **Read and write**로 설정 (다른 권한은 필요 없습니다)
+3. 발급받은 토큰을 secret으로 등록:
+   ```bash
+   npx wrangler secret put GITHUB_RELAY_TOKEN
+   ```
+4. (선택) 기본 브랜치(`main`)가 아닌 다른 브랜치에 기록하려면
+   `GITHUB_RELAY_BRANCH`도 secret으로 등록
+
+등록해 두면 `/setup/debug-menu`(식단)와 `/setup/debug-menu?target=traffic`
+(교통정보) 응답 맨 위에 `[GitHub 기록: ...]` 줄이 붙고, 그 내용이 실제로
+`cloudflare/debug/menu.json` · `cloudflare/debug/traffic.json`에 커밋됩니다.
+토큰을 등록하지 않으면 이 기능은 조용히 꺼지고 기존처럼 응답만 그대로
+보여줍니다.

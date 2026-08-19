@@ -14,6 +14,7 @@ import { sendDailyMenu, sendTrafficAlerts } from "./scheduled";
 import { COMMAND_DEFINITIONS } from "./command-definitions";
 import { DAEWON_API_URL } from "./menu-source";
 import { HIGHWAY_API_URL } from "./traffic-source";
+import { relayDebugToGithub } from "./github-relay";
 import type { Env, Interaction, InteractionResponse } from "./types";
 
 import * as leveling from "./commands/leveling";
@@ -91,6 +92,17 @@ async function handleRegisterCommands(request: Request, env: Env): Promise<Respo
 }
 
 /**
+ * GITHUB_RELAY_TOKEN이 설정되어 있으면 결과를 cloudflare/debug/<filename>에
+ * 기록하고, 사람이 볼 안내 문구(성공/실패)를 돌려줍니다. 토큰이 없으면
+ * 빈 문자열(조용히 건너뜀).
+ */
+async function relayIfConfigured(env: Env, filename: string, content: string): Promise<string> {
+  if (!env.GITHUB_RELAY_TOKEN) return "";
+  const result = await relayDebugToGithub(env.GITHUB_RELAY_TOKEN, filename, content, env.GITHUB_RELAY_BRANCH);
+  return `[GitHub 기록: ${result}]\n\n`;
+}
+
+/**
  * 한국도로공사 교통정보 API를 서버(env.HIGHWAY_API_KEY) 쪽 키로 대신
  * 호출해 원본 응답을 그대로 보여줍니다. `handleDebugMenu`의 `url`
  * 파라미터로도 같은 걸 확인할 수 있지만, 그러면 발급받은 키를 URL에 직접
@@ -108,7 +120,9 @@ async function handleDebugTraffic(env: Env): Promise<Response> {
 
   const res = await fetch(url.toString(), { headers: { "User-Agent": "Mozilla/5.0" } });
   const body = await res.text();
-  return new Response(`HTTP ${res.status} ${res.statusText}\n\n${body}`, {
+  const rawText = `HTTP ${res.status} ${res.statusText}\n\n${body}`;
+  const relayNote = await relayIfConfigured(env, "traffic.json", rawText);
+  return new Response(`${relayNote}${rawText}`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }
@@ -120,7 +134,10 @@ async function handleDebugTraffic(env: Env): Promise<Response> {
  * 가져옵니다. `url` 파라미터를 생략하면 식단 API 주소(DAEWON_API_URL)를
  * fetchMenu()와 똑같은 방식(가능하면 Service Binding)으로 POST 조회합니다.
  * `target=traffic` 이면 대신 교통정보 API를 서버 쪽 키로 조회합니다
- * (`handleDebugTraffic` 참고). 다 쓰신 뒤에는 SETUP_TOKEN secret을 지워서
+ * (`handleDebugTraffic` 참고). GITHUB_RELAY_TOKEN secret이 설정되어
+ * 있으면 결과를 cloudflare/debug/{menu,traffic}.json에도 자동으로
+ * 기록해서(`relayIfConfigured`), 사람이 응답을 복사해서 붙여넣지 않아도
+ * 확인할 수 있게 합니다. 다 쓰신 뒤에는 SETUP_TOKEN secret을 지워서
  * 잠가 두셔도 됩니다.
  */
 async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
@@ -161,7 +178,9 @@ async function handleDebugMenu(request: Request, env: Env): Promise<Response> {
       : { headers: { "User-Agent": "Mozilla/5.0" } },
   );
   const body = await res.text();
-  return new Response(`${bindingNote}HTTP ${res.status} ${res.statusText}\n\n${body}`, {
+  const rawText = `${bindingNote}HTTP ${res.status} ${res.statusText}\n\n${body}`;
+  const relayNote = isDaewonApi ? await relayIfConfigured(env, "menu.json", rawText) : "";
+  return new Response(`${relayNote}${rawText}`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }

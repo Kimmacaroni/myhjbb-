@@ -17,6 +17,14 @@ export interface Env {
   DAEWON_API?: Fetcher;
   /** 한국도로공사 Open API(data.ex.co.kr) 인증키. 없으면 교통정보 기능은 조용히 꺼집니다. */
   HIGHWAY_API_KEY?: string;
+  /**
+   * /setup/debug-menu 결과를 이 저장소의 cloudflare/debug/ 파일에 자동
+   * 기록할 때 쓰는 GitHub PAT(이 저장소 Contents 읽기/쓰기 권한만 있는
+   * fine-grained 토큰 권장). 없으면 이 기록 기능만 조용히 꺼집니다.
+   */
+  GITHUB_RELAY_TOKEN?: string;
+  /** GITHUB_RELAY_TOKEN으로 기록할 브랜치. 생략하면 저장소 기본 브랜치(main). */
+  GITHUB_RELAY_BRANCH?: string;
 }
 
 export interface DiscordUser {

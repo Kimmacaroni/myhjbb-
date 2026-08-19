@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "build:test-bundles": "for f in db levels commands/leveling commands/titles menu-source commands/menu traffic-source commands/traffic scheduled index; do out=$(basename $f); esbuild src/$f.ts --bundle --platform=node --format=esm --outfile=test/.bundled-$out.mjs --external:node:sqlite; done",
+    "build:test-bundles": "for f in db levels commands/leveling commands/titles menu-source commands/menu traffic-source commands/traffic scheduled github-relay index; do out=$(basename $f); esbuild src/$f.ts --bundle --platform=node --format=esm --outfile=test/.bundled-$out.mjs --external:node:sqlite; done",
     "test": "npm run build:test-bundles && for f in test/*.test.mjs; do node \"$f\" || exit 1; done",
     "register-commands": "node scripts/register-commands.mjs",
     "d1:migrate:local": "wrangler d1 migrations apply honorary-bot --local",
