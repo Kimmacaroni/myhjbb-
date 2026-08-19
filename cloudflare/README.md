@@ -206,13 +206,23 @@ D1에 저장된 값(기본 30분)이고, cron은 그 값이 됐는지 5분마다
 `parse_incidents()`).
 
 전국 데이터를 다 알리면 필요없는 지역 소식까지 너무 많이 와서, **수도권
-(서울/인천/경기) 주요 고속도로만** 걸러서 알립니다. API에는 지역 구분값이
-따로 없어서 도로 이름(routeName)이 `CAPITAL_REGION_ROAD_KEYWORDS`
-(`src/traffic-source.ts`) 목록의 키워드(경부·서해안·영동·중부·서울양양·
-수도권·평택시흥·경인)를 포함하는지로 판단합니다(`isCapitalRegionRoad()`).
-경부선·서해안선처럼 수도권 밖까지 뻗은 노선은 노선 전체가 걸러지므로,
-드물게 지방 구간의 정체도 함께 잡힐 수 있습니다 — 구간(conzone) 단위
-지역 판정은 이 API만으로는 할 수 없는 한계입니다.
+(서울/인천/경기) 구간만** 걸러서 알립니다. API에는 지역 구분값이나
+좌표가 따로 없어서 두 단계로 거릅니다(`src/traffic-source.ts`):
+
+1. 도로 이름(routeName)이 `CAPITAL_REGION_ROAD_KEYWORDS` 목록의 키워드
+   (경부·서해안·영동·중부·서울양양·수도권·평택시흥·경인·인천·김포·
+   봉담동탄)를 포함하는지 (`isCapitalRegionRoad()`)
+2. 경부선·중부선·영동선처럼 수도권 밖까지 뻗은 노선은 같은 도로 이름으로
+   지방 구간(대전·충북·강원 등)도 함께 오므로, 구간 이름(conzoneName)에
+   `NON_CAPITAL_REGION_SEGMENT_KEYWORDS` 목록의 지명(천안·청주·신탄진·
+   대구·부산, 음성·충주, 원주·횡성·평창, 당진·서산·목포, 홍천·양양 등)이
+   있으면 도로 이름이 맞아도 그 구간만 제외 (`isCapitalRegionSegment()`)
+
+이 목록은 실제 API 응답을 받아서(예: 경부선 안에 수도권인 "금토JC-
+양재IC"와 대전인 "신탄진IC-회덕JC"가 함께 옴) 수도권/비수도권을 직접
+구분해 만든 것이라, 전국 모든 나들목을 검증한 목록은 아닙니다. 수도권
+밖 구간이 새로 보이면 `NON_CAPITAL_REGION_SEGMENT_KEYWORDS`에 지명을
+추가해 주세요.
 
 `HIGHWAY_API_KEY` secret을 등록한 뒤 아래 주소를 열면 실제 원본 JSON을
 확인할 수 있습니다 (`/setup/debug-menu`가 등록된 `HIGHWAY_API_KEY`로 서버
