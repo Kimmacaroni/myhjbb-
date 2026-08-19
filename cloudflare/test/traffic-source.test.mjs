@@ -100,6 +100,16 @@ function testFormatIncidentLinesByRoadGroupsSameRoad() {
   console.log("  formatIncidentLinesByRoad: 같은 고속도로끼리 묶어서 표시 OK");
 }
 
+function testIsCapitalRegionRoad() {
+  assert.equal(traffic.isCapitalRegionRoad("경부선"), true);
+  assert.equal(traffic.isCapitalRegionRoad("서해안선"), true);
+  assert.equal(traffic.isCapitalRegionRoad("수도권제1순환선"), true);
+  assert.equal(traffic.isCapitalRegionRoad("호남선"), false, "호남선은 수도권 도로가 아님");
+  assert.equal(traffic.isCapitalRegionRoad("남해선"), false);
+  assert.equal(traffic.isCapitalRegionRoad(undefined), false);
+  console.log("  isCapitalRegionRoad: 수도권 도로 판별 OK");
+}
+
 async function testFetchIncidentsSendsKeyAndType() {
   globalThis.fetch = async (url, init) => {
     const u = new URL(url.toString());
@@ -110,8 +120,11 @@ async function testFetchIncidentsSendsKeyAndType() {
     return new Response(JSON.stringify(SAMPLE_LIST), { status: 200 });
   };
   const incidents = await traffic.fetchIncidents("test-key");
-  assert.equal(incidents.length, 2);
-  console.log("  fetchIncidents: key/type/User-Agent 전달 + 파싱 OK");
+  // SAMPLE_LIST에는 경부선(수도권)과 호남선(비수도권)이 섞여 있어서,
+  // fetchIncidents는 수도권 도로(경부선)만 남기고 호남선은 걸러야 함.
+  assert.equal(incidents.length, 1, "수도권이 아닌 도로(호남선)는 걸러져야 함");
+  assert.equal(incidents[0].roadName, "경부선");
+  console.log("  fetchIncidents: key/type/User-Agent 전달 + 파싱 + 수도권 필터링 OK");
 }
 
 async function testFetchIncidentsHandlesHttpError() {
@@ -140,6 +153,7 @@ testParseIncidentsMergesDuplicateSensorsKeepingWorstSpeed();
 testParseIncidentsHandlesUnexpectedShape();
 testMakeIncidentEmbed();
 testFormatIncidentLinesByRoadGroupsSameRoad();
+testIsCapitalRegionRoad();
 await testFetchIncidentsSendsKeyAndType();
 await testFetchIncidentsHandlesHttpError();
 await testFetchIncidentsPrefersGivenFetcher();

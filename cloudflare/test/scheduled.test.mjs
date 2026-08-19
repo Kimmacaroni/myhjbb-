@@ -235,11 +235,11 @@ async function testTrafficChunksMoreThan10IntoMultipleMessages() {
 
   // 디스코드 임베드 상한(10개)을 넘는, 서로 다른 고속도로 13개가 한 번에
   // 새로 잡히는 경우 (같은 도로였다면 하나로 합쳐지므로 일부러 도로를
-  // 전부 다르게 함)
+  // 전부 다르게 함). "경부" 키워드를 포함해야 수도권 필터를 통과함.
   const many = Array.from({ length: 13 }, (_, i) => ({
     routeNo: `r${i}`,
     conzoneId: `c${i}`,
-    routeName: `도로${i}`,
+    routeName: `경부${i}선`,
     conzoneName: `${i}구간`,
     grade: "3",
   }));

@@ -205,6 +205,15 @@ D1에 저장된 값(기본 30분)이고, cron은 그 값이 됐는지 5분마다
 (`src/traffic-source.ts`의 `parseIncidents()`, `traffic_source.py`의
 `parse_incidents()`).
 
+전국 데이터를 다 알리면 필요없는 지역 소식까지 너무 많이 와서, **수도권
+(서울/인천/경기) 주요 고속도로만** 걸러서 알립니다. API에는 지역 구분값이
+따로 없어서 도로 이름(routeName)이 `CAPITAL_REGION_ROAD_KEYWORDS`
+(`src/traffic-source.ts`) 목록의 키워드(경부·서해안·영동·중부·서울양양·
+수도권·평택시흥·경인)를 포함하는지로 판단합니다(`isCapitalRegionRoad()`).
+경부선·서해안선처럼 수도권 밖까지 뻗은 노선은 노선 전체가 걸러지므로,
+드물게 지방 구간의 정체도 함께 잡힐 수 있습니다 — 구간(conzone) 단위
+지역 판정은 이 API만으로는 할 수 없는 한계입니다.
+
 `HIGHWAY_API_KEY` secret을 등록한 뒤 아래 주소를 열면 실제 원본 JSON을
 확인할 수 있습니다 (`/setup/debug-menu`가 등록된 `HIGHWAY_API_KEY`로 서버
 쪽에서 대신 조회해 주므로, 발급받은 키를 주소창에 직접 붙여넣을 필요가

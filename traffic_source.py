@@ -14,6 +14,14 @@
 
 HIGHWAY_API_KEY 환경변수로 API 키를 등록해야 동작합니다.
 
+전국 고속도로를 다 알려주면 필요없는 지역 소식까지 너무 많이 와서,
+수도권(서울/인천/경기) 주요 고속도로만 걸러서 알립니다. API 응답에는
+지역 구분값이 따로 없고 도로 이름(routeName)만 있어서(예: "경부선",
+"호남선"), 수도권을 지나는 노선명 키워드 목록으로 거릅니다
+(CAPITAL_REGION_ROAD_KEYWORDS). 경부선·서해안선처럼 수도권 밖까지 뻗은
+노선은 그 노선 전체가 걸러지므로(구간 단위 지역 판정은 이 API로는 할 수
+없음), 지방 구간의 정체도 함께 잡힐 수 있습니다.
+
 Cloudflare 버전(traffic-source.ts)과 로직을 맞춰 뒀습니다 — 한쪽만 고쳐서
 동작이 달라지지 않도록, 형식을 바꿀 때는 두 파일을 같이 고쳐 주세요.
 """
@@ -23,6 +31,22 @@ import requests
 HIGHWAY_API_URL = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest"
 
 _DIRECTION_LABEL = {"S": "기점 방향", "E": "종점 방향"}
+
+# 수도권(서울/인천/경기)을 지나는 주요 고속도로 노선명 키워드입니다.
+# routeName이 이 중 하나라도 포함하면 수도권 관련 도로로 봅니다.
+#   경부(경부선), 서해안(서해안선), 영동(영동선), 중부(중부선·중부내륙선),
+#   서울양양(서울양양선), 수도권(수도권제1순환선·수도권제2순환선),
+#   평택시흥(평택시흥선), 경인(경인선·제2경인선)
+CAPITAL_REGION_ROAD_KEYWORDS = [
+    "경부", "서해안", "영동", "중부", "서울양양", "수도권", "평택시흥", "경인",
+]
+
+
+def is_capital_region_road(road_name: str | None) -> bool:
+    """도로 이름이 수도권 주요 고속도로에 해당하는지 확인합니다."""
+    if not road_name:
+        return False
+    return any(keyword in road_name for keyword in CAPITAL_REGION_ROAD_KEYWORDS)
 
 
 def _segment_key(item: dict) -> str:
@@ -95,7 +119,8 @@ def fetch_incidents(api_key: str) -> list[dict]:
         timeout=10,
     )
     response.raise_for_status()
-    return parse_incidents(response.json())
+    incidents = parse_incidents(response.json())
+    return [i for i in incidents if is_capital_region_road(i.get("roadName"))]
 
 
 def format_incident_lines_by_road(incidents: list[dict]) -> list[str]:

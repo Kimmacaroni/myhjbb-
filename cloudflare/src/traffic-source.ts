@@ -15,9 +15,41 @@
  *
  * data.ex.co.kr에서 무료로 API 키를 발급받아 HIGHWAY_API_KEY secret으로
  * 등록해야 동작합니다.
+ *
+ * 전국 고속도로를 다 알려주면 필요없는 지역 소식까지 너무 많이 와서,
+ * 수도권(서울/인천/경기) 주요 고속도로만 걸러서 알립니다. API 응답에는
+ * 지역 구분값이 따로 없고 도로 이름(routeName)만 있어서(예: "경부선",
+ * "호남선"), 수도권을 지나는 노선명 키워드 목록으로 거릅니다
+ * (CAPITAL_REGION_ROAD_KEYWORDS). 경부선·서해안선처럼 수도권 밖까지 뻗은
+ * 노선은 그 노선 전체가 걸러지므로(구간 단위 지역 판정은 이 API로는 할 수
+ * 없음), 지방 구간의 정체도 함께 잡힐 수 있습니다.
  */
 
 export const HIGHWAY_API_URL = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest";
+
+/**
+ * 수도권(서울/인천/경기)을 지나는 주요 고속도로 노선명 키워드입니다.
+ * routeName이 이 중 하나라도 포함하면 수도권 관련 도로로 봅니다.
+ *   경부(경부선), 서해안(서해안선), 영동(영동선), 중부(중부선·중부내륙선),
+ *   서울양양(서울양양선), 수도권(수도권제1순환선·수도권제2순환선),
+ *   평택시흥(평택시흥선), 경인(경인선·제2경인선)
+ */
+const CAPITAL_REGION_ROAD_KEYWORDS = [
+  "경부",
+  "서해안",
+  "영동",
+  "중부",
+  "서울양양",
+  "수도권",
+  "평택시흥",
+  "경인",
+];
+
+/** 도로 이름이 수도권 주요 고속도로에 해당하는지 확인합니다. */
+export function isCapitalRegionRoad(roadName: string | undefined): boolean {
+  if (!roadName) return false;
+  return CAPITAL_REGION_ROAD_KEYWORDS.some((keyword) => roadName.includes(keyword));
+}
 
 export interface Incident {
   /** 중복 알림 방지에 쓰는 고유 키(도로+구간+방향 조합 — 시각/센서는 포함하지 않음). */
@@ -113,7 +145,7 @@ export async function fetchIncidents(
     throw new Error(`교통정보 API 응답 오류: HTTP ${response.status}`);
   }
   const data = await response.json();
-  return parseIncidents(data);
+  return parseIncidents(data).filter((incident) => isCapitalRegionRoad(incident.roadName));
 }
 
 /**
