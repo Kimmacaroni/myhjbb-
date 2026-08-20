@@ -126,8 +126,8 @@ function stubTrafficFetch({ incidents = [INCIDENT_A], failChannels = [] } = {}) 
     }
     const m = u.match(/\/channels\/([^/]+)\/messages$/);
     if (m) {
-      const embeds = init?.body ? JSON.parse(init.body).embeds : [];
-      calls.push({ kind: "send", channelId: m[1], embedCount: embeds.length, embeds });
+      const content = init?.body ? JSON.parse(init.body).content : undefined;
+      calls.push({ kind: "send", channelId: m[1], content });
       if (failChannels.includes(m[1])) return new Response("금지됨", { status: 403 });
       return new Response("{}", { status: 200 });
     }
@@ -195,7 +195,7 @@ async function testTrafficBroadcastsToAllGuildsAndDedupes() {
   console.log("  sendTrafficAlerts: 모든 서버 알림 + 정체 유지 중복 방지 + 해제/재발생 감지 OK");
 }
 
-async function testTrafficMergesSameRoadIntoOneEmbed() {
+async function testTrafficSendsOneTextMessageGroupedByRoad() {
   const env = fakeEnv();
   env.HIGHWAY_API_KEY = "test-key";
   await db.setTrafficChannel(env.DB, "g1", "c1");
@@ -204,15 +204,18 @@ async function testTrafficMergesSameRoadIntoOneEmbed() {
   const calls = stubTrafficFetch({ incidents: [INCIDENT_A, INCIDENT_B, INCIDENT_C] });
   await scheduled.sendTrafficAlerts(env);
 
-  const [sent] = calls.filter((c) => c.kind === "send");
-  assert.equal(sent.embedCount, 2, "경부선 구간 2개는 임베드 하나로 합치고, 서해안선은 별도 임베드로 총 2개여야 함");
+  const sends = calls.filter((c) => c.kind === "send");
+  assert.equal(sends.length, 1, "도로별로 따로 보내지 않고 한 메시지(텍스트)로 모아 보내야 함");
+  assert.doesNotMatch(sends[0].content, /embed/i, "임베드가 아니라 텍스트(content)로 와야 함");
 
-  const gyeongbuEmbed = sent.embeds.find((e) => e.title.includes("경부선"));
-  assert.ok(gyeongbuEmbed, "경부선 임베드가 있어야 함");
-  assert.match(gyeongbuEmbed.description, /A구간/);
-  assert.match(gyeongbuEmbed.description, /C구간/);
+  const gyeongbuHeaderIndex = sends[0].content.indexOf("경부선");
+  assert.ok(gyeongbuHeaderIndex >= 0);
+  assert.match(sends[0].content, /A구간/);
+  assert.match(sends[0].content, /C구간/);
+  assert.match(sends[0].content, /서해안선/);
+  assert.match(sends[0].content, /B구간/);
 
-  console.log("  sendTrafficAlerts: 같은 고속도로 구간은 임베드 하나로 합쳐서 전송 OK");
+  console.log("  sendTrafficAlerts: 도로별로 나누지 않고 한 메시지(텍스트)로 모아 전송 OK");
 }
 
 async function testTrafficOneChannelFailureDoesNotBlockOthers() {
@@ -228,19 +231,19 @@ async function testTrafficOneChannelFailureDoesNotBlockOthers() {
   console.log("  sendTrafficAlerts: 한 채널 실패해도 나머지는 계속 전송 OK");
 }
 
-async function testTrafficChunksMoreThan10IntoMultipleMessages() {
+async function testTrafficSplitsWhenTextTooLong() {
   const env = fakeEnv();
   env.HIGHWAY_API_KEY = "test-key";
   await db.setTrafficChannel(env.DB, "g1", "c1");
 
-  // 디스코드 임베드 상한(10개)을 넘는, 서로 다른 고속도로 13개가 한 번에
-  // 새로 잡히는 경우 (같은 도로였다면 하나로 합쳐지므로 일부러 도로를
-  // 전부 다르게 함). "경부" 키워드를 포함해야 수도권 필터를 통과함.
-  const many = Array.from({ length: 13 }, (_, i) => ({
+  // 한 줄이 대략 40자 안팎이라 100개 도로면 디스코드 메시지 글자 수
+  // 제한(2000자)을 넘겨 메시지가 나뉘어야 함. "경부" 키워드를 포함해야
+  // 수도권 필터를 통과함.
+  const many = Array.from({ length: 100 }, (_, i) => ({
     routeNo: `r${i}`,
     conzoneId: `c${i}`,
     routeName: `경부${i}선`,
-    conzoneName: `${i}구간`,
+    conzoneName: `아주긴구간이름표시용텍스트${i}`,
     grade: "3",
   }));
   const calls = stubTrafficFetch({ incidents: many });
@@ -248,10 +251,16 @@ async function testTrafficChunksMoreThan10IntoMultipleMessages() {
   await scheduled.sendTrafficAlerts(env);
 
   const sends = calls.filter((c) => c.kind === "send");
-  assert.equal(sends.length, 2, "13개 도로면 메시지 2개(10+3)로 나뉘어 보내져야 함");
-  assert.deepEqual(sends.map((c) => c.embedCount).sort((a, b) => a - b), [3, 10], "뒤쪽 도로가 조용히 누락되면 안 됨");
+  assert.ok(sends.length > 1, "2000자를 넘으면 여러 메시지로 나눠 보내야 함");
+  for (const s of sends) {
+    assert.ok(s.content.length <= 2000, "메시지 하나가 디스코드 글자 수 제한(2000자)을 넘으면 안 됨");
+  }
+  const combined = sends.map((s) => s.content).join("\n");
+  for (let i = 0; i < 100; i++) {
+    assert.match(combined, new RegExp(`아주긴구간이름표시용텍스트${i}(?!\\d)`), `${i}번째 구간이 누락되면 안 됨`);
+  }
 
-  console.log("  sendTrafficAlerts: 임베드 10개 초과 시 여러 메시지로 나눠 전부 전송 OK");
+  console.log("  sendTrafficAlerts: 2000자 넘으면 여러 메시지로 나눠 전부 전송 OK");
 }
 
 async function testTrafficApiFailureDoesNotThrow() {
@@ -291,9 +300,9 @@ async function testTrafficRespectsConfiguredPollInterval() {
 await testTrafficNoOpWithoutApiKey();
 await testTrafficNoOpWithoutTargets();
 await testTrafficBroadcastsToAllGuildsAndDedupes();
-await testTrafficMergesSameRoadIntoOneEmbed();
+await testTrafficSendsOneTextMessageGroupedByRoad();
 await testTrafficOneChannelFailureDoesNotBlockOthers();
-await testTrafficChunksMoreThan10IntoMultipleMessages();
+await testTrafficSplitsWhenTextTooLong();
 await testTrafficApiFailureDoesNotThrow();
 await testTrafficRespectsConfiguredPollInterval();
 console.log("scheduled.ts (교통정보) 전부 통과 ✅");

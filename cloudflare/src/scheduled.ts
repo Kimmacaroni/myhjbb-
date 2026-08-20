@@ -14,16 +14,10 @@
 import * as db from "./db";
 import { sendChannelMessage } from "./discord";
 import { fetchMenu, makeMenuEmbed } from "./menu-source";
-import { fetchIncidents, makeRoadEmbeds, type Incident } from "./traffic-source";
+import { fetchIncidents, formatIncidentLinesByRoad, chunkLines, type Incident } from "./traffic-source";
 import type { Env } from "./types";
 
-const MAX_EMBEDS = 10; // 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
-  return chunks;
-}
+const MAX_MESSAGE_LENGTH = 2000; // 디스코드 메시지 하나의 최대 글자 수
 
 export async function sendDailyMenu(env: Env): Promise<void> {
   const targets = await db.allMenuChannels(env.DB);
@@ -74,18 +68,19 @@ export async function sendTrafficAlerts(env: Env): Promise<void> {
   const newKeys = new Set(await db.syncActiveIncidents(env.DB, incidents.map((i) => i.key)));
   if (newKeys.size === 0) return;
 
-  // 도로마다 임베드를 따로 보내지 않고, 같은 고속도로의 구간은 임베드
-  // 하나로 묶습니다. 디스코드는 메시지 하나에 임베드 10개까지만
-  // 허용하므로, 묶고도 도로 수가 많으면(예: 처음 켰을 때, 명절 정체 등)
-  // 여러 메시지로 나눠서 전부 보냅니다 — 뒤쪽 도로가 조용히 누락되면
-  // 안 됩니다.
+  // 도로별로 나누지 않고 한 메시지 안에 텍스트로 모아 보냅니다 —
+  // /교통정보 명령어와 같은 형식이라 그대로 복사해서 전달하기 좋습니다.
+  // 디스코드 메시지 글자 수 제한(2000자)을 넘길 만큼 도로가 많을 때만
+  // (예: 처음 켰을 때, 명절 정체 등) 예외적으로 여러 메시지로 나눠서
+  // 전부 보냅니다 — 뒤쪽 도로가 조용히 누락되면 안 됩니다.
   const fresh: Incident[] = incidents.filter((i) => newKeys.has(i.key));
-  const chunks = chunk(makeRoadEmbeds(fresh), MAX_EMBEDS);
+  const lines = [`🚧 새로 심한 정체가 시작된 구간 (${fresh.length}건)`, ...formatIncidentLinesByRoad(fresh)];
+  const chunks = chunkLines(lines, MAX_MESSAGE_LENGTH);
 
   for (const { guildId, channelId } of targets) {
-    for (const group of chunks) {
+    for (const content of chunks) {
       try {
-        await sendChannelMessage(env.DISCORD_TOKEN, channelId, { embeds: group });
+        await sendChannelMessage(env.DISCORD_TOKEN, channelId, { content });
       } catch (err) {
         console.error(`교통정보 알림 실패 (guild ${guildId}, channel ${channelId})`, err);
         break; // 이 채널에 못 보내는 상태면 나머지 묶음도 같은 이유로 실패할 테니 건너뜁니다

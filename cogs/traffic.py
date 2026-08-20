@@ -20,12 +20,7 @@ import traffic_source
 
 log = logging.getLogger(__name__)
 
-MAX_EMBEDS = 10  # 디스코드 메시지 하나에 넣을 수 있는 임베드 최대 개수
 MAX_MESSAGE_LENGTH = 2000  # 디스코드 메시지 하나의 최대 글자 수
-
-
-def _chunk(items: list, size: int) -> list[list]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 def _chunk_text(lines: list[str], max_length: int) -> list[str]:
@@ -106,17 +101,20 @@ class Traffic(commands.Cog):
             return
 
         fresh = [i for i in incidents if i["key"] in new_keys]
-        # 도로마다 임베드를 따로 보내지 않고, 같은 고속도로의 구간은
-        # 임베드 하나로 묶습니다.
-        embed_groups = _chunk(traffic_source.make_road_embeds(fresh), MAX_EMBEDS)
+        # 도로별로 나누지 않고 한 메시지 안에 텍스트로 모아 보냅니다 —
+        # /교통정보 명령어와 같은 형식이라 그대로 복사해서 전달하기 좋습니다.
+        lines = [
+            f"🚧 새로 심한 정체가 시작된 구간 ({len(fresh)}건)",
+            *traffic_source.format_incident_lines_by_road(fresh),
+        ]
 
-        # 디스코드는 메시지 하나에 임베드 10개까지만 허용하므로, 묶고도
-        # 도로 수가 많으면 여러 메시지로 나눠서 전부 보냅니다 — 뒤쪽
-        # 도로가 조용히 누락되면 안 됩니다.
+        # 디스코드 메시지 글자 수 제한(2000자)을 넘길 만큼 도로가 많으면
+        # 여러 메시지로 나눠서 전부 보냅니다 — 뒤쪽 도로가 조용히
+        # 누락되면 안 됩니다.
         for channel in channels:
-            for embeds in embed_groups:
+            for content in _chunk_text(lines, MAX_MESSAGE_LENGTH):
                 try:
-                    await channel.send(embeds=embeds)
+                    await channel.send(content=content)
                 except discord.Forbidden:
                     log.warning("%s 채널에 메시지를 보낼 권한이 없습니다.", channel.id)
                     break
@@ -159,10 +157,9 @@ class Traffic(commands.Cog):
             await interaction.followup.send("✅ 현재 심한 정체 구간이 없습니다.")
             return
 
-        # 도로별로 임베드를 따로 보내던 방식에서, /교통정보로 직접 조회할
-        # 때는 한 메시지 안에 고속도로별로 묶어 텍스트로 모아 보여주는
-        # 방식으로 바꿨습니다(30분마다 자동으로 오는 알림은 poll_traffic에서
-        # 기존 임베드 방식 그대로 유지). 디스코드 메시지 글자 수 제한(2000자)을
+        # 도로별로 나누지 않고 한 메시지 안에 고속도로별로 묶어 텍스트로
+        # 모아 보여줍니다 — 자동 알림(poll_traffic)도 같은 형식이라 그대로
+        # 복사해서 전달하기 좋습니다. 디스코드 메시지 글자 수 제한(2000자)을
         # 넘을 만큼 구간이 많을 때만 예외적으로 여러 메시지로 나눠 보냅니다.
         lines = [
             f"현재 심한 정체 구간 ({len(incidents)}건)",

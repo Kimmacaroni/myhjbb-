@@ -37,7 +37,6 @@ HIGHWAY_API_KEY 환경변수로 API 키를 등록해야 동작합니다.
 Cloudflare 버전(traffic-source.ts)과 로직을 맞춰 뒀습니다 — 한쪽만 고쳐서
 동작이 달라지지 않도록, 형식을 바꿀 때는 두 파일을 같이 고쳐 주세요.
 """
-import discord
 import requests
 
 HIGHWAY_API_URL = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByCongest"
@@ -185,30 +184,3 @@ def format_incident_lines_by_road(incidents: list[dict]) -> list[str]:
     return lines
 
 
-def make_incident_embed(incident: dict) -> discord.Embed:
-    title_parts = [p for p in (incident.get("roadName"), incident.get("kind")) if p]
-    title = "🚧 " + (" · ".join(title_parts) if title_parts else "고속도로 정체")
-
-    embed = discord.Embed(title=title, description=incident["message"], colour=0xED4245)
-    if incident.get("startName"):
-        embed.add_field(name="구간", value=incident["startName"], inline=False)
-    return embed
-
-
-def make_road_embeds(incidents: list[dict]) -> list[discord.Embed]:
-    """30분마다 자동으로 보내는 알림(cogs/traffic.py)에서, 같은 고속도로의
-    구간들을 임베드 하나로 묶어 보여줄 때 씁니다 — 도로마다 임베드가
-    따로따로 오지 않도록."""
-    groups: dict[str, list[dict]] = {}
-    for incident in incidents:
-        road = incident.get("roadName") or "도로 정보 없음"
-        groups.setdefault(road, []).append(incident)
-
-    return [
-        discord.Embed(
-            title=f"🚧 {road}",
-            description="\n".join(f"- {incident['segmentText']}" for incident in group),
-            colour=0xED4245,
-        )
-        for road, group in groups.items()
-    ]

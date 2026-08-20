@@ -6,30 +6,13 @@
 import * as db from "../db";
 import { sendChannelMessage, editOriginalResponse, createFollowupMessage, DiscordRestError, EPHEMERAL } from "../discord";
 import { requirePermission, PERMISSIONS } from "../permissions";
-import { fetchIncidents, formatIncidentLinesByRoad } from "../traffic-source";
+import { fetchIncidents, formatIncidentLinesByRoad, chunkLines } from "../traffic-source";
 import type { Env, Interaction, InteractionResponse } from "../types";
 import { getOption } from "../interactions";
 
 const MAX_MESSAGE_LENGTH = 2000; // 디스코드 메시지 하나의 최대 글자 수
 const MIN_POLL_INTERVAL_MINUTES = 5; // cron 하트비트(5분)보다 짧게는 설정할 수 없음
 const MAX_POLL_INTERVAL_MINUTES = 360; // 6시간
-
-/** 줄 단위로 이어붙이되, maxLength를 넘기지 않도록 여러 메시지로 나눕니다(줄 중간에서 자르지 않음). */
-function chunkLines(lines: string[], maxLength: number): string[] {
-  const chunks: string[] = [];
-  let current = "";
-  for (const line of lines) {
-    const candidate = current ? `${current}\n${line}` : line;
-    if (candidate.length > maxLength && current) {
-      chunks.push(current);
-      current = line;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks;
-}
 
 /** 3초 안에 못 끝낼 수 있는 작업이라 index.ts가 먼저 "생각 중" 응답을 보낸 뒤 이 함수로 마무리합니다. */
 export async function performTrafficNow(env: Env, interaction: Interaction): Promise<void> {
@@ -49,11 +32,11 @@ export async function performTrafficNow(env: Env, interaction: Interaction): Pro
       return;
     }
 
-    // 도로별로 임베드를 따로 보내던 방식에서, /교통정보로 직접 조회할 때는
-    // 한 메시지 안에 고속도로별로 묶어 텍스트로 모아 보여주는 방식으로
-    // 바꿨습니다(자동으로 오는 알림은 기존 임베드 방식 그대로
-    // 유지 — scheduled.ts). 디스코드 메시지 글자 수 제한(2000자)을 넘을
-    // 만큼 구간이 많을 때만 예외적으로 여러 메시지로 나눠 보냅니다.
+    // 도로별로 나누지 않고 한 메시지 안에 고속도로별로 묶어 텍스트로
+    // 모아 보여줍니다 — 그대로 복사해서 다른 곳에 전달하기 좋도록
+    // 자동 알림(scheduled.ts)도 같은 텍스트 형식을 씁니다. 디스코드
+    // 메시지 글자 수 제한(2000자)을 넘을 만큼 구간이 많을 때만 예외적으로
+    // 여러 메시지로 나눠 보냅니다.
     const lines = [`현재 심한 정체 구간 (${incidents.length}건)`, ...formatIncidentLinesByRoad(incidents)];
     const [first, ...rest] = chunkLines(lines, MAX_MESSAGE_LENGTH);
     await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, { content: first });

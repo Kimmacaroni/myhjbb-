@@ -82,19 +82,16 @@ function testParseIncidentsHandlesUnexpectedShape() {
   console.log("  parseIncidents: 예상과 다른 응답 형태/키 없는 항목 → 죽지 않고 빈 배열 OK");
 }
 
-function testMakeIncidentEmbed() {
-  const embed = traffic.makeIncidentEmbed({
-    key: "0010|C001|S",
-    message: "경부선 신탄진~회덕 기점 방향 정체 중 (평균 속도 12km/h)",
-    roadName: "경부선",
-    kind: "정체",
-    startName: "신탄진~회덕",
-  });
-  assert.match(embed.title, /경부선/);
-  assert.match(embed.title, /정체/);
-  assert.match(embed.description, /평균 속도 12km\/h/);
-  assert.equal(embed.fields[0].value, "신탄진~회덕");
-  console.log("  makeIncidentEmbed: 임베드 구조 OK");
+function testChunkLinesSplitsWithoutBreakingALine() {
+  const short = traffic.chunkLines(["a", "b", "c"], 100);
+  assert.deepEqual(short, ["a\nb\nc"], "다 합쳐도 제한 안 넘으면 한 덩어리여야 함");
+
+  const long = traffic.chunkLines(["aaaaa", "bbbbb", "ccccc"], 11);
+  // "aaaaa\nbbbbb"(11자)까지는 되고, ccccc를 더하면 넘어가서 다음 덩어리로
+  assert.deepEqual(long, ["aaaaa\nbbbbb", "ccccc"]);
+  for (const chunk of long) assert.ok(chunk.length <= 11);
+
+  console.log("  chunkLines: 줄 중간을 자르지 않고 글자 수 제한으로 나눔 OK");
 }
 
 function testFormatIncidentLinesByRoadGroupsSameRoad() {
@@ -196,7 +193,7 @@ async function testFetchIncidentsPrefersGivenFetcher() {
 
 testParseIncidentsMergesDuplicateSensorsKeepingWorstSpeed();
 testParseIncidentsHandlesUnexpectedShape();
-testMakeIncidentEmbed();
+testChunkLinesSplitsWithoutBreakingALine();
 testFormatIncidentLinesByRoadGroupsSameRoad();
 testIsCapitalRegionRoad();
 testIsCapitalRegionSegment();

@@ -225,34 +225,24 @@ export function formatIncidentLinesByRoad(incidents: Incident[]): string[] {
   return lines;
 }
 
-export function makeIncidentEmbed(incident: Incident) {
-  const titleParts = [incident.roadName, incident.kind].filter(Boolean);
-
-  return {
-    title: `🚧 ${titleParts.length > 0 ? titleParts.join(" · ") : "고속도로 정체"}`,
-    description: incident.message,
-    color: 0xed4245,
-    fields: incident.startName ? [{ name: "구간", value: incident.startName, inline: false }] : undefined,
-  };
-}
-
 /**
- * 자동으로 보내는 알림(scheduled.ts)에서, 같은 고속도로의 구간들을
- * 임베드 하나로 묶어 보여줄 때 씁니다 — 도로마다 임베드가 따로따로
- * 오지 않도록.
+ * 줄 단위로 이어붙이되, maxLength를 넘기지 않도록 여러 메시지로 나눕니다
+ * (줄 중간에서 자르지 않음). /교통정보 명령어와 자동 알림(scheduled.ts)
+ * 둘 다 텍스트로 보내면서, 디스코드 메시지 글자 수 제한(2000자)을 넘기는
+ * 드문 경우에만 이걸로 나눠 보냅니다.
  */
-export function makeRoadEmbeds(incidents: Incident[]) {
-  const groups = new Map<string, Incident[]>();
-  for (const incident of incidents) {
-    const road = incident.roadName || "도로 정보 없음";
-    const group = groups.get(road);
-    if (group) group.push(incident);
-    else groups.set(road, [incident]);
+export function chunkLines(lines: string[], maxLength: number): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  for (const line of lines) {
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > maxLength && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
   }
-
-  return [...groups.entries()].map(([road, group]) => ({
-    title: `🚧 ${road}`,
-    description: group.map((incident) => `- ${incident.segmentText}`).join("\n"),
-    color: 0xed4245,
-  }));
+  if (current) chunks.push(current);
+  return chunks;
 }

@@ -288,7 +288,7 @@ cogs/
   traffic.py        고속도로 정체 구간 조회 및 30분 간격 알림
 
 menu_source.py      식단 조회·임베드 생성 (아래 두 실행 방식이 공유)
-traffic_source.py   교통정보 조회·임베드 생성
+traffic_source.py   교통정보 조회·텍스트 포맷 생성
 food_bot.py         GitHub Actions 전용 단발 실행 스크립트
 .github/workflows/main.yml   매일 6시 Actions 스케줄
 ```
