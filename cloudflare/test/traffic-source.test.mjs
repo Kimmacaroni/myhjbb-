@@ -137,6 +137,16 @@ function testIsCapitalRegionSegment() {
     false,
     "춘천(강원)은 수도권이 아님 — 가평 다음이 춘천이라 놓치기 쉬움",
   );
+  // 실제로 알림에 샌 적이 있는 사례: 중부내륙선은 "중부"라는 이름과 달리
+  // 여주(경기) 다음부터 경상북도까지 훨씬 멀리 뻗어 있음
+  assert.equal(traffic.isCapitalRegionSegment("중부내륙선", "감곡IC-여주JC"), false, "감곡(충북 음성)은 수도권이 아님");
+  assert.equal(
+    traffic.isCapitalRegionSegment("중부내륙선", "문경새재IC-연풍IC"),
+    false,
+    "문경(경북)은 수도권이 아님",
+  );
+  assert.equal(traffic.isCapitalRegionSegment("중부내륙선", "선산IC-낙동JC"), false, "선산(경북 구미)은 수도권이 아님");
+  assert.equal(traffic.isCapitalRegionSegment("중부내륙선", "곤지암JC-곤지암IC"), true, "곤지암(경기 광주)은 수도권");
   // 도로 자체가 수도권 밖이면 구간 이름과 무관하게 제외
   assert.equal(traffic.isCapitalRegionSegment("호남선", "정읍~장성"), false);
   // 구간 이름이 없어도(undefined) 도로가 수도권이면 통과
