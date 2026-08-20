@@ -1,11 +1,13 @@
 name: Daily Foodpia Bot
 
-# 매일 KST 오전 6시에 식단 브리핑을 전송합니다.
-# GitHub Actions cron은 UTC 기준이므로 21:00 UTC = 다음 날 06:00 KST입니다.
+# 식단 브리핑만 담당하는 단발 실행 워크플로입니다.
+#
+# ⚠️ 자동 실행(schedule)은 꺼뒀습니다. Cloudflare Workers 봇이 같은 채널에
+# 매일 식단을 자동으로 보내고 있어서, 이 워크플로까지 자동 실행되면 매일
+# 식단이 두 번 올라갑니다. 필요하면 아래에서 언제든 수동으로만 실행하세요.
+
 on:
-  schedule:
-    - cron: '0 21 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # 수동 실행 버튼만 남겨둠 (자동 스케줄 없음)
 
 # 이전 실행이 밀렸을 때 겹쳐 돌아 식단이 두 번 올라가는 것을 막습니다.
 concurrency:
