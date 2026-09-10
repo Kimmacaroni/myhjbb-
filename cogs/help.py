@@ -1,4 +1,4 @@
-"""/도움말 명령어.
+""" /도움말 명령어.
 
 봇의 명령어 트리(bot.tree)를 그대로 읽어서 목록을 만들기 때문에, 다른
 Cog에서 명령어를 추가/변경해도 이 파일을 따로 고칠 필요가 없습니다.
@@ -25,6 +25,23 @@ def _permission_label(perms: discord.Permissions | None) -> str | None:
     return "관리자"
 
 
+def _chunks(lines: list[str], limit: int = 1024) -> list[str]:
+    """디스코드 임베드 필드 글자 제한에 맞춰 줄 목록을 나눕니다."""
+    chunks: list[str] = []
+    current = ""
+    for line in lines:
+        candidate = f"{current}\n{line}" if current else line
+        if current and len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+@app_commands.guild_only()
 class Help(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -43,8 +60,12 @@ class Help(commands.Cog):
                 everyone.append(line)
 
         embed = discord.Embed(title="📖 명령어 도움말", colour=discord.Colour.blurple())
-        embed.add_field(name="누구나 사용 가능", value="\n".join(everyone), inline=False)
-        embed.add_field(name="관리자 전용", value="\n".join(admin), inline=False)
+        for index, chunk in enumerate(_chunks(everyone)):
+            name = "누구나 사용 가능" if index == 0 else "누구나 사용 가능 (계속)"
+            embed.add_field(name=name, value=chunk, inline=False)
+        for index, chunk in enumerate(_chunks(admin)):
+            name = "관리자 전용" if index == 0 else "관리자 전용 (계속)"
+            embed.add_field(name=name, value=chunk, inline=False)
         embed.set_footer(text="<필수> · [생략 가능]")
         await interaction.response.send_message(embed=embed)
 
