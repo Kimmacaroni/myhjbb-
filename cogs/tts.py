@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from experimental.huggingface_korean_tts import HuggingFaceKoreanTTS, VOICE_OPTIONS
+from voice_idle import cancel_idle, schedule_idle
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class KoreanTTS(commands.Cog):
             return
 
         voice = interaction.guild.voice_client
+        cancel_idle(self.bot, interaction.guild.id)
         if voice and (voice.is_playing() or voice.is_paused()):
             await interaction.response.send_message(
                 "현재 음악 또는 음성을 재생 중입니다. 끝난 뒤 다시 시도해 주세요.", ephemeral=True
@@ -65,12 +67,11 @@ class KoreanTTS(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=True)
-        joined_for_tts = voice is None or not voice.is_connected()
         output = Path(tempfile.gettempdir()) / f"honorary-tts-{interaction.id}.wav"
 
         async with self._lock(interaction.guild.id):
             try:
-                if joined_for_tts:
+                if voice is None or not voice.is_connected():
                     voice = await member_voice.channel.connect(self_deaf=True)
                 elif voice.channel != member_voice.channel:
                     await voice.move_to(member_voice.channel)
@@ -104,8 +105,8 @@ class KoreanTTS(commands.Cog):
                 await interaction.followup.send(f"❌ 음성 생성에 실패했습니다: {exc}", ephemeral=True)
             finally:
                 output.unlink(missing_ok=True)
-                if joined_for_tts and voice and voice.is_connected() and not voice.is_playing():
-                    await voice.disconnect()
+                if voice and voice.is_connected() and not voice.is_playing():
+                    schedule_idle(self.bot, interaction.guild)
 
 
 async def setup(bot: commands.Bot):

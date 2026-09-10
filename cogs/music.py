@@ -16,6 +16,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import yt_dlp
+from voice_idle import cancel_idle, schedule_idle
 
 log = logging.getLogger(__name__)
 
@@ -270,10 +271,8 @@ class Music(commands.Cog):
                     state.current_source = None
 
             if voice and voice.is_connected() and not voice.is_playing():
-                await voice.disconnect()
+                schedule_idle(self.bot, guild)
         except asyncio.CancelledError:
-            if voice and voice.is_connected():
-                await voice.disconnect()
             raise
         finally:
             state.task = None
@@ -291,6 +290,7 @@ class Music(commands.Cog):
             return None
 
         current = guild.voice_client
+        cancel_idle(self.bot, guild.id)
         if current and current.is_connected():
             if current.channel != voice_state.channel:
                 state = self._state(guild.id)
@@ -345,15 +345,18 @@ class Music(commands.Cog):
 
     @app_commands.command(name="일시정지", description="현재 음악을 일시정지합니다.")
     async def pause(self, interaction: discord.Interaction):
+        cancel_idle(self.bot, interaction.guild.id)
         voice = interaction.guild.voice_client
         if not voice or not voice.is_playing():
             await interaction.response.send_message("지금 재생 중인 음악이 없습니다.", ephemeral=True)
             return
         voice.pause()
         await interaction.response.send_message("⏸️ 일시정지했습니다.")
+        schedule_idle(self.bot, interaction.guild)
 
     @app_commands.command(name="재개", description="일시정지한 음악을 다시 재생합니다.")
     async def resume(self, interaction: discord.Interaction):
+        cancel_idle(self.bot, interaction.guild.id)
         voice = interaction.guild.voice_client
         if not voice or not voice.is_paused():
             await interaction.response.send_message("일시정지된 음악이 없습니다.", ephemeral=True)
@@ -363,6 +366,7 @@ class Music(commands.Cog):
 
     @app_commands.command(name="스킵", description="현재 음악을 건너뜁니다.")
     async def skip(self, interaction: discord.Interaction):
+        cancel_idle(self.bot, interaction.guild.id)
         voice = interaction.guild.voice_client
         if not voice or not (voice.is_playing() or voice.is_paused()):
             await interaction.response.send_message("건너뛸 음악이 없습니다.", ephemeral=True)
@@ -373,6 +377,7 @@ class Music(commands.Cog):
     @app_commands.command(name="이동", description="현재 음악의 원하는 시점(초)으로 이동합니다.")
     @app_commands.describe(초="이동할 시점. 예: 90은 1분 30초")
     async def seek(self, interaction: discord.Interaction, 초: app_commands.Range[int, 0, 86400]):
+        cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
         voice = interaction.guild.voice_client
         track = state.current
@@ -396,17 +401,33 @@ class Music(commands.Cog):
 
     @app_commands.command(name="정지", description="대기열을 비우고 음악 재생을 끝냅니다.")
     async def stop(self, interaction: discord.Interaction):
+        cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
         state.queue.clear()
         if state.task and not state.task.done():
             state.task.cancel()
         voice = interaction.guild.voice_client
+        await interaction.response.send_message("⏹️ 재생과 대기열을 정리했습니다. 봇은 음성 채널에 머무릅니다.")
         if voice and voice.is_connected():
-            await voice.disconnect()
-        await interaction.response.send_message("⏹️ 재생을 끝내고 음성 채널에서 나왔습니다.")
+            schedule_idle(self.bot, interaction.guild)
+
+    @app_commands.command(name="퇴장", description="봇을 음성 채널에서 퇴장시킵니다.")
+    async def leave(self, interaction: discord.Interaction):
+        cancel_idle(self.bot, interaction.guild.id)
+        state = self._state(interaction.guild.id)
+        state.queue.clear()
+        if state.task and not state.task.done():
+            state.task.cancel()
+        voice = interaction.guild.voice_client
+        if not voice or not voice.is_connected():
+            await interaction.response.send_message("현재 음성 채널에 들어가 있지 않습니다.", ephemeral=True)
+            return
+        await voice.disconnect()
+        await interaction.response.send_message("👋 음성 채널에서 퇴장했습니다.")
 
     @app_commands.command(name="대기열", description="현재 음악 대기열을 확인합니다.")
     async def queue(self, interaction: discord.Interaction):
+        cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
         lines: list[str] = []
         if state.current:
@@ -421,15 +442,20 @@ class Music(commands.Cog):
         if not lines:
             lines.append("대기열이 비어 있습니다.")
         await interaction.response.send_message("\n".join(lines))
+        if interaction.guild.voice_client:
+            schedule_idle(self.bot, interaction.guild)
 
     @app_commands.command(name="볼륨", description="음악 볼륨을 0~200%로 설정합니다.")
     @app_commands.describe(퍼센트="0~200 사이의 볼륨")
     async def volume(self, interaction: discord.Interaction, 퍼센트: app_commands.Range[int, 0, 200]):
+        cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
         state.volume = 퍼센트 / 100
         if state.current_source:
             state.current_source.volume = state.volume
         await interaction.response.send_message(f"🔊 볼륨을 **{퍼센트}%**로 설정했습니다.")
+        if interaction.guild.voice_client and not interaction.guild.voice_client.is_playing():
+            schedule_idle(self.bot, interaction.guild)
 
     @app_commands.command(name="음악대시보드설정", description="음악 채널에 명예회장봇 조작 대시보드를 게시합니다.")
     @app_commands.checks.has_permissions(manage_guild=True)
