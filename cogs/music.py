@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque
@@ -29,6 +30,15 @@ YTDLP_OPTIONS = {
     "no_warnings": True,
     "source_address": "0.0.0.0",
 }
+
+# VPS IP가 유튜브에서 자동 요청으로 차단될 때, 소유자가 제공한 쿠키 파일을
+# 선택적으로 사용합니다. 파일이 없으면 기존 공개 검색 방식으로 동작합니다.
+COOKIE_FILE = os.getenv("YTDLP_COOKIE_FILE", "").strip()
+if COOKIE_FILE and os.path.isfile(COOKIE_FILE):
+    YTDLP_OPTIONS["cookiefile"] = COOKIE_FILE
+    log.info("유튜브 쿠키 파일을 사용합니다.")
+elif COOKIE_FILE:
+    log.warning("YTDLP_COOKIE_FILE 경로에 쿠키 파일이 없습니다: %s", COOKIE_FILE)
 
 
 @dataclass
@@ -187,7 +197,13 @@ class Music(commands.Cog):
             )
         except Exception as exc:
             log.exception("음악 검색 실패")
-            await interaction.followup.send(f"❌ 음악을 찾지 못했습니다: {exc}", ephemeral=True)
+            message = f"❌ 음악을 찾지 못했습니다: {exc}"
+            if "Sign in to confirm you're not a bot" in str(exc):
+                message = (
+                    "❌ 유튜브가 VPS 요청을 차단했습니다. 관리자에게 유튜브 쿠키 파일 "
+                    "설정을 요청해 주세요. 자세한 방법은 서버 설정 안내를 확인하세요."
+                )
+            await interaction.followup.send(message, ephemeral=True)
             return
 
         state = self._state(interaction.guild.id)
