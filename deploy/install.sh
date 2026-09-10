@@ -16,9 +16,9 @@ RUN_USER="$(id -un)"
 
 cd "$APP_DIR"
 
-echo "▶ 패키지 목록 갱신 및 설치 (Python, git)"
+echo "▶ 패키지 목록 갱신 및 설치 (Python, git, FFmpeg)"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3 python3-venv python3-pip git
+sudo apt-get install -y -qq python3 python3-venv python3-pip git ffmpeg
 
 echo "▶ 가상환경 준비: $APP_DIR/.venv"
 if [ ! -d ".venv" ]; then
