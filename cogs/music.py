@@ -78,7 +78,7 @@ class MusicSearchModal(discord.ui.Modal, title="명예회장봇 음악 재생"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self.cog.play(interaction, self.query.value)
+        await self.cog.play.callback(self.cog, interaction, self.query.value)
 
 
 class MusicSeekModal(discord.ui.Modal, title="재생 위치 이동"):
@@ -94,7 +94,7 @@ class MusicSeekModal(discord.ui.Modal, title="재생 위치 이동"):
         except ValueError:
             await interaction.response.send_message("0 이상의 숫자로 입력해 주세요.", ephemeral=True)
             return
-        await self.cog.seek(interaction, seconds)
+        await self.cog.seek.callback(self.cog, interaction, seconds)
 
 
 class MusicDashboardView(discord.ui.View):
@@ -110,15 +110,15 @@ class MusicDashboardView(discord.ui.View):
 
     @discord.ui.button(label="대기열", emoji="📋", style=discord.ButtonStyle.secondary, custom_id="honorary_music:queue")
     async def queue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.queue(interaction)
+        await self.cog.queue.callback(self.cog, interaction)
 
     @discord.ui.button(label="일시정지", emoji="⏸️", style=discord.ButtonStyle.secondary, custom_id="honorary_music:pause")
     async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.pause(interaction)
+        await self.cog.pause.callback(self.cog, interaction)
 
     @discord.ui.button(label="스킵", emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="honorary_music:skip")
     async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.skip(interaction)
+        await self.cog.skip.callback(self.cog, interaction)
 
     @discord.ui.button(label="이동", emoji="⏩", style=discord.ButtonStyle.secondary, custom_id="honorary_music:seek")
     async def seek_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -126,7 +126,7 @@ class MusicDashboardView(discord.ui.View):
 
     @discord.ui.button(label="정지", emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="honorary_music:stop")
     async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.stop(interaction)
+        await self.cog.stop.callback(self.cog, interaction)
 
 
 @app_commands.guild_only()
