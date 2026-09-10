@@ -12,7 +12,8 @@ from threading import Lock
 
 
 VOICE_OPTIONS = {
-    "sohee": "따뜻하고 감정이 풍부한 한국 여성 목소리 (추천)",
+    "fast_korean": "빠르고 자연스러운 한국 여성 목소리 (기본·추천)",
+    "sohee": "고품질 한국 여성 목소리 (느림)",
     "vivian": "밝고 선명한 젊은 여성 목소리",
     "serena": "따뜻하고 부드러운 젊은 여성 목소리",
     "uncle_fu": "낮고 차분한 중년 남성 목소리",
@@ -21,7 +22,6 @@ VOICE_OPTIONS = {
     "ryan": "리듬감 있고 역동적인 남성 목소리",
     "aiden": "밝고 또렷한 남성 목소리",
     "ono_anna": "가볍고 장난스러운 여성 목소리",
-    "mms_korean": "가볍게 실행되는 기존 한국어 MMS 목소리",
 }
 
 QWEN_SPEAKERS = {
@@ -33,12 +33,13 @@ QWEN_SPEAKERS = {
 
 @dataclass(frozen=True)
 class TTSConfig:
-    default_voice: str = "sohee"
+    default_voice: str = "fast_korean"
     qwen_model_id: str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
     mms_model_id: str = "facebook/mms-tts-kor"
     uroman_path: str | None = os.getenv("UROMAN_PATH")
     max_text_length: int = 500
     device: str = "auto"
+    fast_model_dir: str = "models/vits-mimic3-ko_KO-kss_low"
 
 
 class HuggingFaceKoreanTTS:
@@ -49,6 +50,7 @@ class HuggingFaceKoreanTTS:
         if self.config.default_voice not in VOICE_OPTIONS:
             raise ValueError(f"지원하지 않는 기본 목소리: {self.config.default_voice}")
         self._qwen_model = None
+        self._fast_model = None
         self._mms_model = None
         self._mms_tokenizer = None
         self._torch = None
@@ -74,6 +76,29 @@ class HuggingFaceKoreanTTS:
             device_map=requested_device if self.config.device == "auto" else self.config.device,
             dtype=torch.bfloat16 if has_cuda else torch.float32,
         )
+
+    def _load_fast(self) -> None:
+        if self._fast_model is not None:
+            return
+        try:
+            import sherpa_onnx
+        except ImportError as exc:
+            raise RuntimeError("sherpa-onnx 패키지를 설치하세요.") from exc
+
+        model_dir = Path(self.config.fast_model_dir).expanduser().resolve()
+        config = sherpa_onnx.OfflineTtsConfig(
+            model=sherpa_onnx.OfflineTtsModelConfig(
+                vits=sherpa_onnx.OfflineTtsVitsModelConfig(
+                    model=str(model_dir / "ko_KO-kss_low.onnx"),
+                    tokens=str(model_dir / "tokens.txt"),
+                    data_dir=str(model_dir / "espeak-ng-data"),
+                ),
+                num_threads=2,
+            )
+        )
+        if not config.validate():
+            raise RuntimeError(f"빠른 한국어 모델 파일을 확인하세요: {model_dir}")
+        self._fast_model = sherpa_onnx.OfflineTts(config)
 
     def _load_mms(self) -> None:
         if self._mms_model is not None:
@@ -131,7 +156,12 @@ class HuggingFaceKoreanTTS:
 
         destination = Path(output_path).expanduser().resolve()
         with self._lock:
-            if selected == "mms_korean":
+            if selected == "fast_korean":
+                self._load_fast()
+                audio = self._fast_model.generate(cleaned, sid=0, speed=1.0)
+                waveform = audio.samples
+                sample_rate = audio.sample_rate
+            elif selected == "mms_korean":
                 self._load_mms()
                 inputs = self._mms_tokenizer(self._romanize(cleaned), return_tensors="pt")
                 with self._torch.inference_mode():
@@ -155,7 +185,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="한국어 TTS 10개 목소리 시험")
     parser.add_argument("text", nargs="?", default="안녕하세요, 명예회장봇입니다.")
-    parser.add_argument("--voice", choices=VOICE_OPTIONS, default="sohee")
+    parser.add_argument("--voice", choices=VOICE_OPTIONS, default="fast_korean")
     parser.add_argument("--style", default="따뜻하고 자연스러운 말투로 말해 주세요.")
     parser.add_argument("--output", default="tts-output.wav")
     parser.add_argument("--list-voices", action="store_true")

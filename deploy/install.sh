@@ -18,7 +18,7 @@ cd "$APP_DIR"
 
 echo "▶ 패키지 목록 갱신 및 설치 (Python, git, FFmpeg)"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3 python3-venv python3-pip git ffmpeg curl unzip
+sudo apt-get install -y -qq python3 python3-venv python3-pip git ffmpeg curl unzip bzip2
 
 # 최신 유튜브는 재생 URL 검증에 JavaScript 실행 환경을 요구합니다.
 if ! command -v deno >/dev/null 2>&1; then
@@ -33,6 +33,17 @@ if [ ! -d ".venv" ]; then
 fi
 ./.venv/bin/pip install -q --upgrade pip
 ./.venv/bin/pip install -q -r requirements.txt
+
+FAST_TTS_DIR="$APP_DIR/models/vits-mimic3-ko_KO-kss_low"
+if [ ! -f "$FAST_TTS_DIR/ko_KO-kss_low.onnx" ]; then
+    echo "▶ 빠른 한국어 TTS 모델 설치"
+    mkdir -p "$APP_DIR/models"
+    curl -fL \
+        https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-mimic3-ko_KO-kss_low.tar.bz2 \
+        -o "$APP_DIR/models/ko-tts.tar.bz2"
+    tar -xjf "$APP_DIR/models/ko-tts.tar.bz2" -C "$APP_DIR/models"
+    rm "$APP_DIR/models/ko-tts.tar.bz2"
+fi
 
 if [ ! -f ".env" ]; then
     echo

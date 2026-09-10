@@ -35,7 +35,7 @@ class KoreanTTS(commands.Cog):
     @app_commands.command(name="음성", description="입력한 한국어 문장을 음성 채널에서 읽습니다.")
     @app_commands.describe(
         내용="봇이 읽을 문장 (최대 300자)",
-        목소리="사용할 목소리. 선택하지 않으면 한국어 Sohee",
+        목소리="사용할 목소리. 선택하지 않으면 빠른 한국어 음성",
         말투="예: 차분하고 진지하게, 밝고 신나게",
     )
     @app_commands.choices(목소리=VOICE_CHOICES)
@@ -82,7 +82,7 @@ class KoreanTTS(commands.Cog):
                 await self.tts.synthesize_async(
                     내용,
                     output,
-                    voice=목소리.value if 목소리 else "sohee",
+                    voice=목소리.value if 목소리 else "fast_korean",
                     style=말투 or "따뜻하고 자연스러운 말투로 말해 주세요.",
                 )
 

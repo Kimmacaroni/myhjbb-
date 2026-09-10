@@ -5,3 +5,4 @@ transformers>=4.33,<5
 numpy>=1.26,<3
 sentencepiece>=0.2,<1
 qwen-tts
+sherpa-onnx==1.13.7
