@@ -116,8 +116,11 @@ class Music(commands.Cog):
                     finished = asyncio.get_running_loop().create_future()
 
                     def after_playing(error: Exception | None):
-                        if not finished.done():
-                            self.bot.loop.call_soon_threadsafe(finished.set_result, error)
+                        def mark_finished():
+                            if not finished.done():
+                                finished.set_result(error)
+
+                        self.bot.loop.call_soon_threadsafe(mark_finished)
 
                     voice.play(source, after=after_playing)
                     await track.channel.send(
