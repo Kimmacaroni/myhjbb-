@@ -48,8 +48,10 @@ class Track:
     title: str
     webpage_url: str
     duration: int | None
+    thumbnail: str | None
     requester: str
     channel: discord.abc.Messageable
+    start_at: int = 0
 
 
 @dataclass
@@ -59,6 +61,71 @@ class PlayerState:
     current_source: discord.PCMVolumeTransformer | None = None
     task: asyncio.Task | None = None
     volume: float = 0.5
+    started_at: float = 0.0
+    progress_task: asyncio.Task | None = None
+
+
+class MusicSearchModal(discord.ui.Modal, title="명예회장봇 음악 재생"):
+    query = discord.ui.TextInput(
+        label="유튜브 URL 또는 가수 · 노래 제목",
+        placeholder="예: 아이유 좋은날 또는 유튜브 URL",
+        max_length=300,
+    )
+
+    def __init__(self, cog: "Music"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.cog.play(interaction, self.query.value)
+
+
+class MusicSeekModal(discord.ui.Modal, title="재생 위치 이동"):
+    seconds = discord.ui.TextInput(label="이동할 시점(초)", placeholder="예: 90 = 1분 30초", max_length=6)
+
+    def __init__(self, cog: "Music"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            seconds = int(self.seconds.value)
+        except ValueError:
+            await interaction.response.send_message("0 이상의 숫자로 입력해 주세요.", ephemeral=True)
+            return
+        await self.cog.seek(interaction, seconds)
+
+
+class MusicDashboardView(discord.ui.View):
+    """재시작 뒤에도 유지되는 음악 대시보드 버튼 모음입니다."""
+
+    def __init__(self, cog: "Music"):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(label="재생", emoji="🎵", style=discord.ButtonStyle.primary, custom_id="honorary_music:play")
+    async def play_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(MusicSearchModal(self.cog))
+
+    @discord.ui.button(label="대기열", emoji="📋", style=discord.ButtonStyle.secondary, custom_id="honorary_music:queue")
+    async def queue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.queue(interaction)
+
+    @discord.ui.button(label="일시정지", emoji="⏸️", style=discord.ButtonStyle.secondary, custom_id="honorary_music:pause")
+    async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.pause(interaction)
+
+    @discord.ui.button(label="스킵", emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="honorary_music:skip")
+    async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.skip(interaction)
+
+    @discord.ui.button(label="이동", emoji="⏩", style=discord.ButtonStyle.secondary, custom_id="honorary_music:seek")
+    async def seek_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(MusicSeekModal(self.cog))
+
+    @discord.ui.button(label="정지", emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="honorary_music:stop")
+    async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.stop(interaction)
 
 
 @app_commands.guild_only()
@@ -66,9 +133,52 @@ class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.players: dict[int, PlayerState] = {}
+        self.dashboard_channels: set[int] = set()
+
+    async def cog_load(self):
+        self.bot.add_view(MusicDashboardView(self))
+
+    async def _delete_later(self, message: discord.Message, seconds: int) -> None:
+        await asyncio.sleep(seconds)
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """대시보드 채널의 일반 채팅은 조작 화면을 깔끔하게 유지합니다."""
+        if message.author.bot or message.channel.id not in self.dashboard_channels:
+            return
+        asyncio.create_task(self._delete_later(message, 5))
 
     def _state(self, guild_id: int) -> PlayerState:
         return self.players.setdefault(guild_id, PlayerState())
+
+    def _progress_embed(self, track: Track, state: PlayerState) -> discord.Embed:
+        elapsed = track.start_at + max(0, int(asyncio.get_running_loop().time() - state.started_at))
+        if track.duration:
+            elapsed = min(elapsed, track.duration)
+            filled = round((elapsed / track.duration) * 14)
+            bar = "━" * filled + "🔘" + "━" * (14 - filled)
+            progress = f"{bar}\\n`{self._duration_text(elapsed)} / {self._duration_text(track.duration)}`"
+        else:
+            progress = "🔘 `재생 시간 확인 중`"
+        embed = discord.Embed(title="🎵 지금 재생 중", description=f"**{track.title}**", colour=discord.Colour.dark_blue())
+        embed.add_field(name="재생 진행", value=progress, inline=False)
+        embed.set_footer(text=f"신청: {track.requester} · /이동 <초> 또는 대시보드 이동 버튼")
+        if track.thumbnail:
+            embed.set_thumbnail(url=track.thumbnail)
+        return embed
+
+    async def _update_progress(self, message: discord.Message, track: Track, state: PlayerState):
+        try:
+            while state.current is track:
+                await asyncio.sleep(5)
+                if state.current is track:
+                    await message.edit(embed=self._progress_embed(track, state))
+        except (asyncio.CancelledError, discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
 
     @staticmethod
     def _duration_text(seconds: int | None) -> str:
@@ -97,6 +207,7 @@ class Music(commands.Cog):
             title=info.get("title") or "제목을 알 수 없는 음악",
             webpage_url=url,
             duration=info.get("duration"),
+            thumbnail=info.get("thumbnail"),
             requester=requester,
             channel=channel,
         )
@@ -115,12 +226,16 @@ class Music(commands.Cog):
             while state.queue and voice and voice.is_connected():
                 track = state.queue.popleft()
                 state.current = track
+                state.started_at = asyncio.get_running_loop().time()
 
                 try:
                     stream_url = await self._stream_url(track)
                     audio = discord.FFmpegPCMAudio(
                         stream_url,
-                        before_options=FFMPEG_BEFORE_OPTIONS,
+                        before_options=(
+                            f"-ss {track.start_at} {FFMPEG_BEFORE_OPTIONS}"
+                            if track.start_at else FFMPEG_BEFORE_OPTIONS
+                        ),
                         options=FFMPEG_OPTIONS,
                     )
                     source = discord.PCMVolumeTransformer(audio, volume=state.volume)
@@ -135,8 +250,9 @@ class Music(commands.Cog):
                         self.bot.loop.call_soon_threadsafe(mark_finished)
 
                     voice.play(source, after=after_playing)
-                    await track.channel.send(
-                        f"🎵 지금 재생: **{track.title}** ({self._duration_text(track.duration)})"
+                    now_playing_message = await track.channel.send(embed=self._progress_embed(track, state))
+                    state.progress_task = asyncio.create_task(
+                        self._update_progress(now_playing_message, track, state)
                     )
                     error = await finished
                     if error:
@@ -147,6 +263,9 @@ class Music(commands.Cog):
                     log.exception("음악 재생 준비 실패")
                     await track.channel.send(f"❌ **{track.title}** 재생에 실패해 다음 곡으로 넘어갑니다: {exc}")
                 finally:
+                    if state.progress_task:
+                        state.progress_task.cancel()
+                        state.progress_task = None
                     state.current = None
                     state.current_source = None
 
@@ -181,9 +300,10 @@ class Music(commands.Cog):
                     )
                     return None
                 await current.move_to(voice_state.channel)
+                await guild.change_voice_state(channel=voice_state.channel, self_deaf=True)
             return current
 
-        return await voice_state.channel.connect()
+        return await voice_state.channel.connect(self_deaf=True)
 
     @app_commands.command(name="재생", description="유튜브 URL 또는 검색어를 음성 채널에서 재생합니다.")
     @app_commands.describe(검색어="유튜브 URL 또는 가수명과 노래 제목")
@@ -212,11 +332,16 @@ class Music(commands.Cog):
         state.queue.append(track)
         if state.task is None or state.task.done():
             state.task = asyncio.create_task(self._player_loop(interaction.guild, state))
-            await interaction.followup.send(f"🎶 재생 목록에 추가: **{track.title}**")
-        else:
-            await interaction.followup.send(
-                f"📥 대기열에 추가: **{track.title}** ({self._duration_text(track.duration)})"
+            confirmation = await interaction.followup.send(
+                f"🎶 재생 목록에 추가: **{track.title}**", wait=True
             )
+        else:
+            confirmation = await interaction.followup.send(
+                f"📥 대기열에 추가: **{track.title}** ({self._duration_text(track.duration)})",
+                wait=True,
+            )
+        if interaction.channel.id in self.dashboard_channels:
+            asyncio.create_task(self._delete_later(confirmation, 10))
 
     @app_commands.command(name="일시정지", description="현재 음악을 일시정지합니다.")
     async def pause(self, interaction: discord.Interaction):
@@ -244,6 +369,30 @@ class Music(commands.Cog):
             return
         voice.stop()
         await interaction.response.send_message("⏭️ 다음 곡으로 넘어갑니다.")
+
+    @app_commands.command(name="이동", description="현재 음악의 원하는 시점(초)으로 이동합니다.")
+    @app_commands.describe(초="이동할 시점. 예: 90은 1분 30초")
+    async def seek(self, interaction: discord.Interaction, 초: app_commands.Range[int, 0, 86400]):
+        state = self._state(interaction.guild.id)
+        voice = interaction.guild.voice_client
+        track = state.current
+        if not track or not voice or not (voice.is_playing() or voice.is_paused()):
+            await interaction.response.send_message("이동할 재생 중인 음악이 없습니다.", ephemeral=True)
+            return
+        if track.duration is not None and 초 >= track.duration:
+            await interaction.response.send_message(
+                f"곡 길이({self._duration_text(track.duration)}) 안의 시점을 입력해 주세요.",
+                ephemeral=True,
+            )
+            return
+        track.start_at = 초
+        state.queue.appendleft(track)
+        if state.progress_task:
+            state.progress_task.cancel()
+        voice.stop()
+        await interaction.response.send_message(
+            f"⏩ **{self._duration_text(초)}** 지점으로 이동합니다."
+        )
 
     @app_commands.command(name="정지", description="대기열을 비우고 음악 재생을 끝냅니다.")
     async def stop(self, interaction: discord.Interaction):
@@ -281,6 +430,76 @@ class Music(commands.Cog):
         if state.current_source:
             state.current_source.volume = state.volume
         await interaction.response.send_message(f"🔊 볼륨을 **{퍼센트}%**로 설정했습니다.")
+
+    @app_commands.command(name="음악대시보드설정", description="음악 채널에 명예회장봇 조작 대시보드를 게시합니다.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.default_permissions(manage_guild=True)
+    async def dashboard(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        channel_name = "회장님의-뮤직피아"
+        channel = discord.utils.get(guild.text_channels, name=channel_name)
+        if channel is None:
+            try:
+                channel = await guild.create_text_channel(
+                    channel_name,
+                    reason="명예회장봇 음악 대시보드 생성",
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "❌ 전용 채널을 만들 권한이 없습니다. 봇 역할에 `채널 관리` 권한을 주세요.",
+                    ephemeral=True,
+                )
+                return
+
+        embed = discord.Embed(
+            title="🎧 명예회장봇 음악 채널",
+            description=(
+                "회장님의 뮤직피아에 오신 것을 환영합니다.\\n"
+                "아래 버튼으로 음악을 재생하고 관리하세요."
+            ),
+            colour=discord.Colour.dark_blue(),
+        )
+        embed.add_field(
+            name="🎵 버튼 사용법",
+            value=(
+                "**재생** — 곡명 또는 유튜브 URL 입력\\n"
+                "**대기열** — 현재 재생·다음 곡 확인\\n"
+                "**일시정지 / 스킵 / 정지** — 재생 상태 제어"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="💬 슬래시 명령어 예시",
+            value=(
+                "`/재생 아이유 좋은날`\\n"
+                "`/재생 https://www.youtube.com/watch?v=...`\\n"
+                "`/볼륨 70` · `/재개` · `/대기열`"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="명예회장봇 · 음성 채널 음악 대시보드")
+        banner_path = "assets/honorary-music-dashboard-banner.png"
+        try:
+            file = discord.File(banner_path, filename="honorary-music-dashboard-banner.png")
+            embed.set_image(url="attachment://honorary-music-dashboard-banner.png")
+            dashboard_message = await channel.send(
+                embed=embed, view=MusicDashboardView(self), file=file
+            )
+        except FileNotFoundError:
+            dashboard_message = await channel.send(embed=embed, view=MusicDashboardView(self))
+        try:
+            await dashboard_message.pin(reason="명예회장봇 음악 대시보드를 채널 상단에 고정")
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "⚠️ 대시보드는 만들었지만 상단 고정 권한이 없습니다. 봇 역할에 `메시지 관리` 권한을 주세요.",
+                ephemeral=True,
+            )
+        self.dashboard_channels.add(channel.id)
+        await interaction.followup.send(
+            f"✅ {channel.mention} 채널에 대시보드를 게시하고 상단에 고정했습니다. 일반 채팅은 5초 후 자동 삭제됩니다.",
+            ephemeral=True,
+        )
 
     async def cog_unload(self):
         for state in self.players.values():

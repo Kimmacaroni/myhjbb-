@@ -1,7 +1,7 @@
-discord.py[voice]>=2.3,<3
-requests>=2.31
-yt-dlp[default]>=2025.1.15
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.14.0+cpu
 torchaudio==2.11.0+cpu
+transformers>=4.33,<5
+numpy>=1.26,<3
+sentencepiece>=0.2,<1
 qwen-tts

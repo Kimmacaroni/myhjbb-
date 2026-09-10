@@ -28,6 +28,7 @@ COGS = (
     "cogs.menu",
     "cogs.traffic",
     "cogs.music",
+    "cogs.tts",
     "cogs.help",
 )
 
