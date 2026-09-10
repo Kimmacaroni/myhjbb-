@@ -29,6 +29,8 @@ YTDLP_OPTIONS = {
     "quiet": True,
     "no_warnings": True,
     "source_address": "0.0.0.0",
+    # YouTube의 최신 JavaScript 검증 스크립트를 Deno로 받아 실행합니다.
+    "remote_components": ["ejs:npm"],
 }
 
 # VPS IP가 유튜브에서 자동 요청으로 차단될 때, 소유자가 제공한 쿠키 파일을
