@@ -64,6 +64,7 @@ class PlayerState:
     volume: float = 0.5
     started_at: float = 0.0
     progress_task: asyncio.Task | None = None
+    dashboard_message: discord.Message | None = None
 
 
 class MusicSearchModal(discord.ui.Modal, title="명예회장봇 음악 재생"):
@@ -139,6 +140,12 @@ class Music(commands.Cog):
     async def cog_load(self):
         self.bot.add_view(MusicDashboardView(self))
 
+    def _is_dashboard_channel(self, channel: discord.abc.GuildChannel | discord.abc.Messageable) -> bool:
+        return (
+            getattr(channel, "id", None) in self.dashboard_channels
+            or getattr(channel, "name", None) == "회장님의-뮤직피아"
+        )
+
     async def _delete_later(self, message: discord.Message, seconds: int) -> None:
         await asyncio.sleep(seconds)
         try:
@@ -149,8 +156,9 @@ class Music(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """대시보드 채널의 일반 채팅은 조작 화면을 깔끔하게 유지합니다."""
-        if message.author.bot or message.channel.id not in self.dashboard_channels:
+        if message.author.bot or not self._is_dashboard_channel(message.channel):
             return
+        self.dashboard_channels.add(message.channel.id)
         asyncio.create_task(self._delete_later(message, 5))
 
     def _state(self, guild_id: int) -> PlayerState:
@@ -172,12 +180,79 @@ class Music(commands.Cog):
             embed.set_thumbnail(url=track.thumbnail)
         return embed
 
+    def _dashboard_embed(self, track: Track | None = None, state: PlayerState | None = None) -> discord.Embed:
+        embed = discord.Embed(
+            title="🎧 명예회장봇 음악 채널",
+            description=(
+                "회장님의 뮤직피아에 오신 것을 환영합니다.\n"
+                "아래 버튼으로 음악을 재생하고 관리하세요."
+            ),
+            colour=discord.Colour.dark_blue(),
+        )
+        embed.add_field(
+            name="🎵 버튼 사용법",
+            value=(
+                "**재생** — 곡명 또는 유튜브 URL 입력\n"
+                "**대기열** — 현재 재생·다음 곡 확인\n"
+                "**일시정지 / 스킵 / 정지** — 재생 상태 제어"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="💬 슬래시 명령어 예시",
+            value=(
+                "`/재생 아이유 좋은날`\n"
+                "`/재생 https://www.youtube.com/watch?v=...`\n"
+                "`/볼륨 70` · `/재개` · `/대기열`"
+            ),
+            inline=False,
+        )
+        if track and state:
+            elapsed = track.start_at + max(0, int(asyncio.get_running_loop().time() - state.started_at))
+            if track.duration:
+                elapsed = min(elapsed, track.duration)
+                filled = round((elapsed / track.duration) * 14)
+                progress = (
+                    f"{'━' * filled}🔘{'━' * (14 - filled)}\n"
+                    f"`{self._duration_text(elapsed)} / {self._duration_text(track.duration)}`"
+                )
+            else:
+                progress = "🔘 `재생 시간 확인 중`"
+            embed.add_field(
+                name="🎶 지금 재생 중",
+                value=f"**{track.title}**\n{progress}\n신청: {track.requester}",
+                inline=False,
+            )
+            if track.thumbnail:
+                embed.set_thumbnail(url=track.thumbnail)
+        else:
+            embed.add_field(name="🎶 지금 재생 중", value="현재 재생 중인 곡이 없습니다.", inline=False)
+        embed.set_footer(text="명예회장봇 · 음성 채널 음악 대시보드")
+        return embed
+
+    async def _find_dashboard_message(self, guild: discord.Guild, state: PlayerState) -> discord.Message | None:
+        if state.dashboard_message:
+            return state.dashboard_message
+        channel = discord.utils.get(guild.text_channels, name="회장님의-뮤직피아")
+        if not channel:
+            return None
+        self.dashboard_channels.add(channel.id)
+        try:
+            pins = await channel.pins()
+        except (discord.Forbidden, discord.HTTPException):
+            return None
+        for message in pins:
+            if message.author == guild.me and message.embeds and message.embeds[0].title == "🎧 명예회장봇 음악 채널":
+                state.dashboard_message = message
+                return message
+        return None
+
     async def _update_progress(self, message: discord.Message, track: Track, state: PlayerState):
         try:
             while state.current is track:
                 await asyncio.sleep(5)
                 if state.current is track:
-                    await message.edit(embed=self._progress_embed(track, state))
+                    await message.edit(embed=self._dashboard_embed(track, state), view=MusicDashboardView(self))
         except (asyncio.CancelledError, discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
 
@@ -251,10 +326,14 @@ class Music(commands.Cog):
                         self.bot.loop.call_soon_threadsafe(mark_finished)
 
                     voice.play(source, after=after_playing)
-                    now_playing_message = await track.channel.send(embed=self._progress_embed(track, state))
-                    state.progress_task = asyncio.create_task(
-                        self._update_progress(now_playing_message, track, state)
-                    )
+                    dashboard_message = await self._find_dashboard_message(guild, state)
+                    if dashboard_message:
+                        await dashboard_message.edit(
+                            embed=self._dashboard_embed(track, state), view=MusicDashboardView(self)
+                        )
+                        state.progress_task = asyncio.create_task(
+                            self._update_progress(dashboard_message, track, state)
+                        )
                     error = await finished
                     if error:
                         log.warning("음악 재생 오류: %s", error)
@@ -272,6 +351,11 @@ class Music(commands.Cog):
 
             if voice and voice.is_connected() and not voice.is_playing():
                 schedule_idle(self.bot, guild)
+            dashboard_message = await self._find_dashboard_message(guild, state)
+            if dashboard_message:
+                await dashboard_message.edit(
+                    embed=self._dashboard_embed(), view=MusicDashboardView(self)
+                )
         except asyncio.CancelledError:
             raise
         finally:
@@ -340,7 +424,8 @@ class Music(commands.Cog):
                 f"📥 대기열에 추가: **{track.title}** ({self._duration_text(track.duration)})",
                 wait=True,
             )
-        if interaction.channel.id in self.dashboard_channels:
+        if self._is_dashboard_channel(interaction.channel):
+            self.dashboard_channels.add(interaction.channel.id)
             asyncio.create_task(self._delete_later(confirmation, 10))
 
     @app_commands.command(name="일시정지", description="현재 음악을 일시정지합니다.")
@@ -478,50 +563,30 @@ class Music(commands.Cog):
                 )
                 return
 
-        embed = discord.Embed(
-            title="🎧 명예회장봇 음악 채널",
-            description=(
-                "회장님의 뮤직피아에 오신 것을 환영합니다.\\n"
-                "아래 버튼으로 음악을 재생하고 관리하세요."
-            ),
-            colour=discord.Colour.dark_blue(),
-        )
-        embed.add_field(
-            name="🎵 버튼 사용법",
-            value=(
-                "**재생** — 곡명 또는 유튜브 URL 입력\\n"
-                "**대기열** — 현재 재생·다음 곡 확인\\n"
-                "**일시정지 / 스킵 / 정지** — 재생 상태 제어"
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="💬 슬래시 명령어 예시",
-            value=(
-                "`/재생 아이유 좋은날`\\n"
-                "`/재생 https://www.youtube.com/watch?v=...`\\n"
-                "`/볼륨 70` · `/재개` · `/대기열`"
-            ),
-            inline=False,
-        )
-        embed.set_footer(text="명예회장봇 · 음성 채널 음악 대시보드")
-        banner_path = "assets/honorary-music-dashboard-banner.png"
-        try:
-            file = discord.File(banner_path, filename="honorary-music-dashboard-banner.png")
-            embed.set_image(url="attachment://honorary-music-dashboard-banner.png")
-            dashboard_message = await channel.send(
-                embed=embed, view=MusicDashboardView(self), file=file
-            )
-        except FileNotFoundError:
-            dashboard_message = await channel.send(embed=embed, view=MusicDashboardView(self))
-        try:
-            await dashboard_message.pin(reason="명예회장봇 음악 대시보드를 채널 상단에 고정")
-        except discord.Forbidden:
-            await interaction.followup.send(
-                "⚠️ 대시보드는 만들었지만 상단 고정 권한이 없습니다. 봇 역할에 `메시지 관리` 권한을 주세요.",
-                ephemeral=True,
-            )
+        embed = self._dashboard_embed()
         self.dashboard_channels.add(channel.id)
+        state = self._state(guild.id)
+        dashboard_message = await self._find_dashboard_message(guild, state)
+        if dashboard_message:
+            await dashboard_message.edit(embed=embed, view=MusicDashboardView(self))
+        else:
+            banner_path = "assets/honorary-music-dashboard-banner.png"
+            try:
+                file = discord.File(banner_path, filename="honorary-music-dashboard-banner.png")
+                embed.set_image(url="attachment://honorary-music-dashboard-banner.png")
+                dashboard_message = await channel.send(
+                    embed=embed, view=MusicDashboardView(self), file=file
+                )
+            except FileNotFoundError:
+                dashboard_message = await channel.send(embed=embed, view=MusicDashboardView(self))
+            try:
+                await dashboard_message.pin(reason="명예회장봇 음악 대시보드를 채널 상단에 고정")
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "⚠️ 대시보드는 만들었지만 상단 고정 권한이 없습니다. 봇 역할에 `메시지 관리` 권한을 주세요.",
+                    ephemeral=True,
+                )
+        state.dashboard_message = dashboard_message
         await interaction.followup.send(
             f"✅ {channel.mention} 채널에 대시보드를 게시하고 상단에 고정했습니다. 일반 채팅은 5초 후 자동 삭제됩니다.",
             ephemeral=True,
