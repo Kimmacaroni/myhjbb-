@@ -18,7 +18,14 @@ cd "$APP_DIR"
 
 echo "▶ 패키지 목록 갱신 및 설치 (Python, git, FFmpeg)"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3 python3-venv python3-pip git ffmpeg
+sudo apt-get install -y -qq python3 python3-venv python3-pip git ffmpeg curl unzip
+
+# 최신 유튜브는 재생 URL 검증에 JavaScript 실행 환경을 요구합니다.
+if ! command -v deno >/dev/null 2>&1; then
+    echo "▶ 유튜브 검증용 Deno 설치"
+    curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh
+    sudo ln -sf /opt/deno/bin/deno /usr/local/bin/deno
+fi
 
 echo "▶ 가상환경 준비: $APP_DIR/.venv"
 if [ ! -d ".venv" ]; then
