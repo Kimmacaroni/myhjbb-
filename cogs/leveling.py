@@ -15,6 +15,7 @@ from discord.ext import commands, tasks
 import config
 import db
 import levels
+from access_control import admin_only
 
 log = logging.getLogger(__name__)
 
@@ -189,6 +190,7 @@ class Leveling(commands.Cog):
 
     @app_commands.command(name="경험치", description="내 경험치와 레벨을 확인합니다.")
     @app_commands.describe(유저="확인할 대상 — 멘션(@닉네임) 또는 유저 ID (생략하면 본인)")
+    @admin_only()
     async def show_xp(self, interaction: discord.Interaction, 유저: str | None = None):
         if 유저 is None:
             member = interaction.user
@@ -228,6 +230,7 @@ class Leveling(commands.Cog):
 
     @app_commands.command(name="랭킹", description="서버 경험치 순위를 보여줍니다.")
     @app_commands.describe(인원="표시할 인원 수 (기본 10명)")
+    @admin_only()
     async def leaderboard(
         self,
         interaction: discord.Interaction,
@@ -259,8 +262,7 @@ class Leveling(commands.Cog):
 
     @app_commands.command(name="경험치지급", description="지정한 멤버에게 경험치를 지급합니다.")
     @app_commands.describe(유저="지급 대상 — 멘션(@닉네임) 또는 유저 ID", 수량="지급할 경험치")
-    @app_commands.checks.has_permissions(manage_roles=True)
-    @app_commands.default_permissions(manage_roles=True)
+    @admin_only()
     async def give_xp(
         self,
         interaction: discord.Interaction,
@@ -275,8 +277,7 @@ class Leveling(commands.Cog):
 
     @app_commands.command(name="경험치차감", description="지정한 멤버의 경험치를 차감합니다.")
     @app_commands.describe(유저="차감 대상 — 멘션(@닉네임) 또는 유저 ID", 수량="차감할 경험치")
-    @app_commands.checks.has_permissions(manage_roles=True)
-    @app_commands.default_permissions(manage_roles=True)
+    @admin_only()
     async def take_xp(
         self,
         interaction: discord.Interaction,
@@ -291,8 +292,7 @@ class Leveling(commands.Cog):
 
     @app_commands.command(name="경험치설정", description="멤버의 경험치를 특정 값으로 맞춥니다.")
     @app_commands.describe(유저="대상 — 멘션(@닉네임) 또는 유저 ID", 수량="설정할 누적 경험치")
-    @app_commands.checks.has_permissions(manage_roles=True)
-    @app_commands.default_permissions(manage_roles=True)
+    @admin_only()
     async def set_xp(
         self,
         interaction: discord.Interaction,
@@ -351,7 +351,9 @@ PERMISSION_NAMES = {
 async def handle_command_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
 ):
-    if isinstance(error, app_commands.MissingPermissions):
+    if isinstance(error, app_commands.CheckFailure):
+        message = "이 명령어는 서버 관리자만 사용할 수 있습니다."
+    elif isinstance(error, app_commands.MissingPermissions):
         needed = ", ".join(
             f"`{PERMISSION_NAMES.get(p, p)}`" for p in error.missing_permissions
         )

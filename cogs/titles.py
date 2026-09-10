@@ -12,6 +12,7 @@ from discord.ext import commands
 
 import config
 import db
+from access_control import admin_only
 
 log = logging.getLogger(__name__)
 
@@ -108,8 +109,7 @@ class Titles(commands.Cog):
         레벨="이 칭호를 획득하는 데 필요한 레벨",
         색상="역할 색상 (예: #E74C3C). 생략하면 기본색",
     )
-    @app_commands.checks.has_permissions(manage_roles=True)
-    @app_commands.default_permissions(manage_roles=True)
+    @admin_only()
     async def add_title(
         self,
         interaction: discord.Interaction,
@@ -152,8 +152,7 @@ class Titles(commands.Cog):
 
     @app_commands.command(name="칭호삭제", description="칭호와 해당 역할을 함께 삭제합니다.")
     @app_commands.describe(이름="삭제할 칭호 이름")
-    @app_commands.checks.has_permissions(manage_roles=True)
-    @app_commands.default_permissions(manage_roles=True)
+    @admin_only()
     async def remove_title(self, interaction: discord.Interaction, 이름: str):
         guild = interaction.guild
         title = db.find_title_by_name(guild.id, 이름)
@@ -188,6 +187,7 @@ class Titles(commands.Cog):
         ][:25]
 
     @app_commands.command(name="칭호목록", description="등록된 칭호를 등급 순으로 보여줍니다.")
+    @admin_only()
     async def list_titles(self, interaction: discord.Interaction):
         titles = db.get_titles(interaction.guild.id)
         if not titles:
@@ -214,8 +214,7 @@ class Titles(commands.Cog):
     @app_commands.command(
         name="칭호동기화", description="서버 전체 멤버의 칭호를 현재 레벨에 맞게 다시 계산합니다."
     )
-    @app_commands.checks.has_permissions(manage_roles=True)
-    @app_commands.default_permissions(manage_roles=True)
+    @admin_only()
     async def resync(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild

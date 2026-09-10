@@ -7,6 +7,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from access_control import ADMIN_COMMAND_NAMES
+
 
 def _usage(command: app_commands.Command) -> str:
     if not command.parameters:
@@ -53,7 +55,11 @@ class Help(commands.Cog):
 
         for command in sorted(self.bot.tree.get_commands(), key=lambda c: c.name):
             line = f"**/{command.name}{_usage(command)}** — {command.description}"
-            label = _permission_label(command.default_permissions)
+            label = (
+                "관리자"
+                if command.name in ADMIN_COMMAND_NAMES
+                else _permission_label(command.default_permissions)
+            )
             if label:
                 admin.append(f"{line} *({label} 권한 필요)*")
             else:
