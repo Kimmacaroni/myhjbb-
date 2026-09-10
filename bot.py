@@ -1,7 +1,7 @@
 """명예회장봇 상시 실행 진입점.
 
 기존 `food_bot.py`는 GitHub Actions가 하루 한 번 켜서 메시지만 보내고 껐지만,
-경험치·레벨·칭호 시스템은 채팅과 통화방을 실시간으로 지켜봐야 하므로
+경험치·레벨·칭호·음성 채널 음악 시스템은 실시간 연결이 필요하므로
 24시간 켜져 있는 이 진입점을 사용합니다.
 
 실행:  DISCORD_TOKEN=... python bot.py
@@ -22,7 +22,14 @@ logging.basicConfig(
 )
 log = logging.getLogger("honorary-bot")
 
-COGS = ("cogs.leveling", "cogs.titles", "cogs.menu", "cogs.traffic", "cogs.help")
+COGS = (
+    "cogs.leveling",
+    "cogs.titles",
+    "cogs.menu",
+    "cogs.traffic",
+    "cogs.music",
+    "cogs.help",
+)
 
 
 class HonoraryBot(commands.Bot):
@@ -30,7 +37,7 @@ class HonoraryBot(commands.Bot):
         intents = discord.Intents.default()
         # 역할 지급/회수와 랭킹 표시에 멤버 정보가 필요합니다. (특권 인텐트)
         intents.members = True
-        # 통화방 참여 감지에 필요합니다.
+        # 통화방 참여 감지와 음성 채널 음악 재생에 필요합니다.
         intents.voice_states = True
         # 명령어는 전부 슬래시 명령어라 message_content 인텐트는 필요 없습니다.
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
