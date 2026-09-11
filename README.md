@@ -351,3 +351,11 @@ GitHub Actions 경로에는 없습니다).
 ---
 
 모든 번거로움은 명예회장봇에게 맡기시고, 오늘도 무사고 안전 운행하십시오!
+
+---
+
+## 📘 개발·운영 인수인계
+
+Hermes Agent 또는 다른 개발 환경에서 작업을 이어갈 때는
+[`docs/HERMES_AGENT_HANDOFF_KO.md`](docs/HERMES_AGENT_HANDOFF_KO.md)를 먼저 읽으세요.
+현재 기능, VPS 운영 방식, 주요 커밋, 보안 수칙, 알려진 설정 문제와 다음 작업 순서가 정리되어 있습니다.
