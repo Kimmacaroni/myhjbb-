@@ -174,6 +174,8 @@ Cloudflare Workers의 Cron Trigger로 충분합니다 — 다만 GitHub Actions�
 
 ## 🚀 방법 B — 전체 기능 실행하기
 
+> 아래 설치·실행·VPS 명령은 절차 참고용입니다. 에이전트나 작업자는 사용자의 명시적 배포 승인을 받은 뒤에만 VPS 접속, 설치, 파일 반영, 서비스 재시작·중지를 수행해야 합니다. 원격 push도 별도의 명시적 승인을 받은 뒤에만 수행합니다.
+
 ### 1. 디스코드 개발자 포털 설정
 1. [Developer Portal](https://discord.com/developers/applications) → 해당 앱 → **Bot**
 2. **Privileged Gateway Intents** 에서 **SERVER MEMBERS INTENT** 를 켭니다
@@ -200,6 +202,10 @@ cp .env.example .env    # 값을 채운 뒤
 export $(grep -v '^#' .env | xargs)
 python bot.py
 ```
+
+관리 명령에 봇 소유자 예외가 필요하면 `.env`의 `BOT_OWNER_IDS`에 Discord 사용자
+ID를 쉼표로 구분해 넣으세요. 비워 두거나 잘못 입력하면 소유자 예외 없이 서버
+관리자 권한만 허용됩니다. 개인 ID를 코드·문서·작업 기록에 하드코딩하지 마세요.
 
 > 🚧 **교통정보 알림을 쓰려면** [data.ex.co.kr](https://data.ex.co.kr) 에서
 > 무료로 회원가입 후 Open API 인증키를 발급받아 `.env`의 `HIGHWAY_API_KEY`에
@@ -268,6 +274,8 @@ journalctl -u honorary-bot -f        # 실시간 로그 (Ctrl+C로 빠져나오�
 디스코드에서 `/`를 쳐서 명령어가 뜨는지 확인하세요.
 
 ### 이후 관리
+다음 운영 명령 역시 사용자가 해당 작업을 명시적으로 승인한 경우에만 실행합니다.
+
 | 상황 | 명령어 |
 |---|---|
 | 재시작 | `sudo systemctl restart honorary-bot` |
@@ -320,7 +328,12 @@ menu_source.py      식단 조회·임베드 생성 (아래 두 실행 방식이
 traffic_source.py   교통정보 조회·텍스트 포맷 생성
 food_bot.py         GitHub Actions 전용 단발 실행 스크립트
 .github/workflows/main.yml   매일 6시 Actions 스케줄
+.github/workflows/deploy-cloudflare.yml   공식 기준 브랜치의 Cloudflare 변경 배포
 ```
+
+현재 저장소에 있는 workflow는 위 두 개뿐입니다. **VPS 자동 배포 workflow는
+존재하지 않으며**, 문서의 GitHub → VPS 자동 배포 내용은 사용자 승인 후 별도로
+구현할 권장안이지 현재 동작 중인 기능이 아닙니다.
 
 식단 형식을 바꾸고 싶으면 `menu_source.py` 한 곳만 고치면 양쪽에 함께 반영됩니다.
 교통정보도 마찬가지로 `traffic_source.py` 한 곳만 고치면 됩니다 (다만 이 기능은
@@ -344,9 +357,10 @@ GitHub Actions 경로에는 없습니다).
 ## 🔐 보안 주의
 
 이제 모든 스크립트가 토큰을 환경변수에서만 읽습니다. 다만 **예전 커밋 이력에는
-토큰이 그대로 남아 있습니다.** 저장소가 공개 상태라면 반드시
-**토큰을 재발급(Reset Token)** 하고 새 토큰을 Secret 으로 등록하세요.
-재발급하면 유출된 옛 토큰은 즉시 무효가 됩니다.
+평문 토큰이 남아 있었던 것으로 기록되어 있습니다.** 저장소 문서만으로는 해당
+토큰의 폐기·재발급 완료 여부를 확인할 수 없으므로 현재 상태는 **확인 필요**입니다.
+운영자가 Discord 개발자 포털에서 기존 토큰 폐기와 새 토큰 재발급을 직접 확인하고
+Secret/VPS 환경변수를 갱신해야 합니다. 확인 증거 없이 완료로 기록하지 마세요.
 
 ---
 

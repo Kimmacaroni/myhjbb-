@@ -16,7 +16,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import yt_dlp
+from music_helpers import duration_text, progress_text
 from voice_idle import cancel_idle, schedule_idle
+from voice_playback import start_playback
 
 log = logging.getLogger(__name__)
 
@@ -164,22 +166,6 @@ class Music(commands.Cog):
     def _state(self, guild_id: int) -> PlayerState:
         return self.players.setdefault(guild_id, PlayerState())
 
-    def _progress_embed(self, track: Track, state: PlayerState) -> discord.Embed:
-        elapsed = track.start_at + max(0, int(asyncio.get_running_loop().time() - state.started_at))
-        if track.duration:
-            elapsed = min(elapsed, track.duration)
-            filled = round((elapsed / track.duration) * 14)
-            bar = "━" * filled + "🔘" + "━" * (14 - filled)
-            progress = f"{bar}\\n`{self._duration_text(elapsed)} / {self._duration_text(track.duration)}`"
-        else:
-            progress = "🔘 `재생 시간 확인 중`"
-        embed = discord.Embed(title="🎵 지금 재생 중", description=f"**{track.title}**", colour=discord.Colour.dark_blue())
-        embed.add_field(name="재생 진행", value=progress, inline=False)
-        embed.set_footer(text=f"신청: {track.requester} · /이동 <초> 또는 대시보드 이동 버튼")
-        if track.thumbnail:
-            embed.set_thumbnail(url=track.thumbnail)
-        return embed
-
     def _dashboard_embed(self, track: Track | None = None, state: PlayerState | None = None) -> discord.Embed:
         embed = discord.Embed(
             title="🎧 명예회장봇 음악 채널",
@@ -208,16 +194,12 @@ class Music(commands.Cog):
             inline=False,
         )
         if track and state:
-            elapsed = track.start_at + max(0, int(asyncio.get_running_loop().time() - state.started_at))
-            if track.duration:
-                elapsed = min(elapsed, track.duration)
-                filled = round((elapsed / track.duration) * 14)
-                progress = (
-                    f"{'━' * filled}🔘{'━' * (14 - filled)}\n"
-                    f"`{self._duration_text(elapsed)} / {self._duration_text(track.duration)}`"
-                )
-            else:
-                progress = "🔘 `재생 시간 확인 중`"
+            progress = progress_text(
+                start_at=track.start_at,
+                duration=track.duration,
+                started_at=state.started_at,
+                now=asyncio.get_running_loop().time(),
+            )
             embed.add_field(
                 name="🎶 지금 재생 중",
                 value=f"**{track.title}**\n{progress}\n신청: {track.requester}",
@@ -255,14 +237,6 @@ class Music(commands.Cog):
                     await message.edit(embed=self._dashboard_embed(track, state), view=MusicDashboardView(self))
         except (asyncio.CancelledError, discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
-
-    @staticmethod
-    def _duration_text(seconds: int | None) -> str:
-        if not seconds:
-            return "알 수 없음"
-        minutes, seconds = divmod(seconds, 60)
-        hours, minutes = divmod(minutes, 60)
-        return f"{hours}:{minutes:02}:{seconds:02}" if hours else f"{minutes}:{seconds:02}"
 
     @staticmethod
     def _extract(query: str) -> dict:
@@ -316,16 +290,7 @@ class Music(commands.Cog):
                     )
                     source = discord.PCMVolumeTransformer(audio, volume=state.volume)
                     state.current_source = source
-                    finished = asyncio.get_running_loop().create_future()
-
-                    def after_playing(error: Exception | None):
-                        def mark_finished():
-                            if not finished.done():
-                                finished.set_result(error)
-
-                        self.bot.loop.call_soon_threadsafe(mark_finished)
-
-                    voice.play(source, after=after_playing)
+                    finished = start_playback(voice, source)
                     dashboard_message = await self._find_dashboard_message(guild, state)
                     if dashboard_message:
                         await dashboard_message.edit(
@@ -421,7 +386,7 @@ class Music(commands.Cog):
             )
         else:
             confirmation = await interaction.followup.send(
-                f"📥 대기열에 추가: **{track.title}** ({self._duration_text(track.duration)})",
+                f"📥 대기열에 추가: **{track.title}** ({duration_text(track.duration)})",
                 wait=True,
             )
         if self._is_dashboard_channel(interaction.channel):
@@ -471,7 +436,7 @@ class Music(commands.Cog):
             return
         if track.duration is not None and 초 >= track.duration:
             await interaction.response.send_message(
-                f"곡 길이({self._duration_text(track.duration)}) 안의 시점을 입력해 주세요.",
+                f"곡 길이({duration_text(track.duration)}) 안의 시점을 입력해 주세요.",
                 ephemeral=True,
             )
             return
@@ -481,7 +446,7 @@ class Music(commands.Cog):
             state.progress_task.cancel()
         voice.stop()
         await interaction.response.send_message(
-            f"⏩ **{self._duration_text(초)}** 지점으로 이동합니다."
+            f"⏩ **{duration_text(초)}** 지점으로 이동합니다."
         )
 
     @app_commands.command(name="정지", description="대기열을 비우고 음악 재생을 끝냅니다.")
@@ -519,7 +484,7 @@ class Music(commands.Cog):
             lines.append(f"▶️ 현재 재생: **{state.current.title}**")
         if state.queue:
             lines.extend(
-                f"{index}. **{track.title}** ({self._duration_text(track.duration)})"
+                f"{index}. **{track.title}** ({duration_text(track.duration)})"
                 for index, track in enumerate(list(state.queue)[:10], start=1)
             )
             if len(state.queue) > 10:
