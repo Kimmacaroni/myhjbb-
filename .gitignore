@@ -1,5 +1,11 @@
 .env
+.env.*
+!.env.example
 *.db
+youtube-cookies.txt
+cookies.txt
+cookies/
+models/
 __pycache__/
 *.py[cod]
 .venv/
