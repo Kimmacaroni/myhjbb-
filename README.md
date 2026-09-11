@@ -174,6 +174,8 @@ Cloudflare Workers의 Cron Trigger로 충분합니다 — 다만 GitHub Actions�
 
 ## 🚀 방법 B — 전체 기능 실행하기
 
+> 아래 설치·실행·VPS 명령은 절차 참고용입니다. 에이전트나 작업자는 사용자의 명시적 배포 승인을 받은 뒤에만 VPS 접속, 설치, 파일 반영, 서비스 재시작·중지를 수행해야 합니다. 원격 push도 별도의 명시적 승인을 받은 뒤에만 수행합니다.
+
 ### 1. 디스코드 개발자 포털 설정
 1. [Developer Portal](https://discord.com/developers/applications) → 해당 앱 → **Bot**
 2. **Privileged Gateway Intents** 에서 **SERVER MEMBERS INTENT** 를 켭니다
@@ -268,6 +270,8 @@ journalctl -u honorary-bot -f        # 실시간 로그 (Ctrl+C로 빠져나오�
 디스코드에서 `/`를 쳐서 명령어가 뜨는지 확인하세요.
 
 ### 이후 관리
+다음 운영 명령 역시 사용자가 해당 작업을 명시적으로 승인한 경우에만 실행합니다.
+
 | 상황 | 명령어 |
 |---|---|
 | 재시작 | `sudo systemctl restart honorary-bot` |
