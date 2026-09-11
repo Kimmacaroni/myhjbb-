@@ -31,7 +31,7 @@
 
 - GitHub 최신 작업 브랜치: `claude/how-it-works-x3928d`
 - `main`에는 아직 아래 최신 기능이 병합되지 않았다. 다른 기기에서는 반드시 작업 브랜치를 체크아웃한다.
-- 운영 VPS에 반영된 최신 코드 커밋: `2fe0977`
+- 운영 VPS에 반영된 최신 기능 커밋: `1ff9bdb`
 - 운영 서비스 상태: `honorary-bot.service` 정상 실행 확인
 - 로컬 작업 트리: 문서 갱신 직전 기준 미커밋 변경 없음
 - 최신 변경:
@@ -468,6 +468,7 @@ git push origin HEAD
 최근 핵심 커밋:
 
 ```text
+1ff9bdb feat: persist music dashboard across updates
 2fe0977 feat: play music from dashboard channel messages
 deb4bea perf: warm fast TTS and overlap synthesis with voice connection
 1e42ba9 fix: split dashboard and now playing embeds and restore banner
