@@ -16,6 +16,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import yt_dlp
+import db
 from voice_idle import cancel_idle, schedule_idle
 
 log = logging.getLogger(__name__)
@@ -150,6 +151,11 @@ class Music(commands.Cog):
 
     async def cog_load(self):
         self.bot.add_view(MusicDashboardView(self))
+        self.dashboard_channels.update(
+            channel_id
+            for channel_id, _ in db.all_music_dashboards().values()
+            if channel_id is not None
+        )
 
     def _is_dashboard_channel(self, channel: discord.abc.GuildChannel | discord.abc.Messageable) -> bool:
         return (
@@ -316,6 +322,10 @@ class Music(commands.Cog):
         for state in self.players.values():
             if state.dashboard_message and state.dashboard_message.id == payload.message_id:
                 state.dashboard_message = None
+        if payload.guild_id:
+            channel_id, message_id = db.get_music_dashboard(payload.guild_id)
+            if message_id == payload.message_id:
+                db.set_music_dashboard(payload.guild_id, channel_id, None)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -333,10 +343,25 @@ class Music(commands.Cog):
     async def _find_dashboard_message(self, guild: discord.Guild, state: PlayerState) -> discord.Message | None:
         if state.dashboard_message:
             return state.dashboard_message
-        channel = discord.utils.get(guild.text_channels, name="회장님의-뮤직피아")
+        saved_channel_id, saved_message_id = db.get_music_dashboard(guild.id)
+        channel = guild.get_channel(saved_channel_id) if saved_channel_id else None
+        if not isinstance(channel, discord.TextChannel):
+            channel = discord.utils.get(guild.text_channels, name="회장님의-뮤직피아")
         if not channel:
+            if saved_channel_id or saved_message_id:
+                db.set_music_dashboard(guild.id, None, None)
             return None
         self.dashboard_channels.add(channel.id)
+
+        if saved_message_id:
+            try:
+                message = await channel.fetch_message(saved_message_id)
+                if message.author == guild.me:
+                    state.dashboard_message = message
+                    return message
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                db.set_music_dashboard(guild.id, channel.id, None)
+
         try:
             pins = await channel.pins()
         except (discord.Forbidden, discord.HTTPException):
@@ -344,7 +369,9 @@ class Music(commands.Cog):
         for message in pins:
             if message.author == guild.me and message.embeds and message.embeds[0].title == "🎧 명예회장봇 음악 채널":
                 state.dashboard_message = message
+                db.set_music_dashboard(guild.id, channel.id, message.id)
                 return message
+        db.set_music_dashboard(guild.id, channel.id, None)
         return None
 
     async def _update_progress(self, message: discord.Message, track: Track, state: PlayerState):
@@ -707,6 +734,7 @@ class Music(commands.Cog):
                     ephemeral=True,
                 )
         state.dashboard_message = dashboard_message
+        db.set_music_dashboard(guild.id, channel.id, dashboard_message.id)
         await interaction.followup.send(
             f"✅ {channel.mention} 채널에 대시보드를 게시하고 상단에 고정했습니다. 일반 채팅은 5초 후 자동 삭제됩니다.",
             ephemeral=True,

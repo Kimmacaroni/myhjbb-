@@ -44,7 +44,9 @@ CREATE INDEX IF NOT EXISTS idx_titles_level ON titles (guild_id, level);
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id           INTEGER NOT NULL PRIMARY KEY,
     menu_channel_id    INTEGER,
-    traffic_channel_id INTEGER
+    traffic_channel_id INTEGER,
+    music_channel_id   INTEGER,
+    music_message_id   INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS traffic_seen_incidents (
@@ -73,6 +75,10 @@ def init(path: str) -> None:
         columns = {row["name"] for row in _conn.execute("PRAGMA table_info(guild_settings)")}
         if "traffic_channel_id" not in columns:
             _conn.execute("ALTER TABLE guild_settings ADD COLUMN traffic_channel_id INTEGER")
+        if "music_channel_id" not in columns:
+            _conn.execute("ALTER TABLE guild_settings ADD COLUMN music_channel_id INTEGER")
+        if "music_message_id" not in columns:
+            _conn.execute("ALTER TABLE guild_settings ADD COLUMN music_message_id INTEGER")
         _conn.commit()
 
 
@@ -274,6 +280,45 @@ def all_traffic_channels() -> dict[int, int]:
             "WHERE traffic_channel_id IS NOT NULL"
         ).fetchall()
     return {row["guild_id"]: row["traffic_channel_id"] for row in rows}
+
+
+def set_music_dashboard(
+    guild_id: int, channel_id: int | None, message_id: int | None
+) -> None:
+    """서버별 음악 대시보드 위치를 저장합니다."""
+    with _tx() as conn:
+        conn.execute(
+            """INSERT INTO guild_settings (guild_id, music_channel_id, music_message_id)
+               VALUES (?, ?, ?)
+               ON CONFLICT (guild_id) DO UPDATE SET
+                   music_channel_id = excluded.music_channel_id,
+                   music_message_id = excluded.music_message_id""",
+            (guild_id, channel_id, message_id),
+        )
+
+
+def get_music_dashboard(guild_id: int) -> tuple[int | None, int | None]:
+    with _tx() as conn:
+        row = conn.execute(
+            "SELECT music_channel_id, music_message_id FROM guild_settings WHERE guild_id = ?",
+            (guild_id,),
+        ).fetchone()
+    if row is None:
+        return None, None
+    return row["music_channel_id"], row["music_message_id"]
+
+
+def all_music_dashboards() -> dict[int, tuple[int | None, int | None]]:
+    """저장된 음악 대시보드의 {서버 ID: (채널 ID, 메시지 ID)}입니다."""
+    with _tx() as conn:
+        rows = conn.execute(
+            """SELECT guild_id, music_channel_id, music_message_id
+                 FROM guild_settings WHERE music_channel_id IS NOT NULL"""
+        ).fetchall()
+    return {
+        row["guild_id"]: (row["music_channel_id"], row["music_message_id"])
+        for row in rows
+    }
 
 
 # ── 교통정보(정체 구간) 중복 알림 방지 ────────────────
