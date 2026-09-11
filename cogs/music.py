@@ -170,7 +170,7 @@ class Music(commands.Cog):
             elapsed = min(elapsed, track.duration)
             filled = round((elapsed / track.duration) * 14)
             bar = "━" * filled + "🔘" + "━" * (14 - filled)
-            progress = f"{bar}\\n`{self._duration_text(elapsed)} / {self._duration_text(track.duration)}`"
+            progress = f"{bar}\n`{self._duration_text(elapsed)} / {self._duration_text(track.duration)}`"
         else:
             progress = "🔘 `재생 시간 확인 중`"
         embed = discord.Embed(title="🎵 지금 재생 중", description=f"**{track.title}**", colour=discord.Colour.dark_blue())
@@ -207,28 +207,40 @@ class Music(commands.Cog):
             ),
             inline=False,
         )
-        if track and state:
-            elapsed = track.start_at + max(0, int(asyncio.get_running_loop().time() - state.started_at))
-            if track.duration:
-                elapsed = min(elapsed, track.duration)
-                filled = round((elapsed / track.duration) * 14)
-                progress = (
-                    f"{'━' * filled}🔘{'━' * (14 - filled)}\n"
-                    f"`{self._duration_text(elapsed)} / {self._duration_text(track.duration)}`"
-                )
-            else:
-                progress = "🔘 `재생 시간 확인 중`"
-            embed.add_field(
-                name="🎶 지금 재생 중",
-                value=f"**{track.title}**\n{progress}\n신청: {track.requester}",
-                inline=False,
-            )
-            if track.thumbnail:
-                embed.set_thumbnail(url=track.thumbnail)
-        else:
-            embed.add_field(name="🎶 지금 재생 중", value="현재 재생 중인 곡이 없습니다.", inline=False)
         embed.set_footer(text="명예회장봇 · 음성 채널 음악 대시보드")
         return embed
+
+    def _dashboard_embeds(self, track=None, state=None):
+        main = self._dashboard_embed()
+        current = self._progress_embed(track, state) if track and state else discord.Embed(
+            title="🎵 지금 재생 중", description="현재 재생 중인 곡이 없습니다.",
+            colour=discord.Colour.dark_blue(),
+        )
+        return [main, current]
+
+    async def _edit_dashboard(self, message, track=None, state=None):
+        embeds = self._dashboard_embeds(track, state)
+        attachments = list(message.attachments)
+        banner = next((a for a in attachments if a.filename == "honorary-music-dashboard-banner.png"), None)
+        if banner:
+            embeds[0].set_image(url="attachment://honorary-music-dashboard-banner.png")
+        elif os.path.isfile("assets/honorary-music-dashboard-banner.png"):
+            attachments.append(discord.File("assets/honorary-music-dashboard-banner.png"))
+            embeds[0].set_image(url="attachment://honorary-music-dashboard-banner.png")
+        updated = await message.edit(embeds=embeds, attachments=attachments, view=MusicDashboardView(self))
+        if message.guild:
+            self._state(message.guild.id).dashboard_message = updated
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        for guild in self.bot.guilds:
+            state = self._state(guild.id)
+            message = await self._find_dashboard_message(guild, state)
+            if message:
+                try:
+                    await self._edit_dashboard(message, state.current, state)
+                except discord.HTTPException:
+                    log.exception("음악 대시보드 복원 실패 (서버: %s)", guild.id)
 
     async def _find_dashboard_message(self, guild: discord.Guild, state: PlayerState) -> discord.Message | None:
         if state.dashboard_message:
@@ -252,7 +264,7 @@ class Music(commands.Cog):
             while state.current is track:
                 await asyncio.sleep(5)
                 if state.current is track:
-                    await message.edit(embed=self._dashboard_embed(track, state), view=MusicDashboardView(self))
+                    await self._edit_dashboard(message, track, state)
         except (asyncio.CancelledError, discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
 
@@ -328,9 +340,7 @@ class Music(commands.Cog):
                     voice.play(source, after=after_playing)
                     dashboard_message = await self._find_dashboard_message(guild, state)
                     if dashboard_message:
-                        await dashboard_message.edit(
-                            embed=self._dashboard_embed(track, state), view=MusicDashboardView(self)
-                        )
+                        await self._edit_dashboard(dashboard_message, track, state)
                         state.progress_task = asyncio.create_task(
                             self._update_progress(dashboard_message, track, state)
                         )
@@ -353,9 +363,7 @@ class Music(commands.Cog):
                 schedule_idle(self.bot, guild)
             dashboard_message = await self._find_dashboard_message(guild, state)
             if dashboard_message:
-                await dashboard_message.edit(
-                    embed=self._dashboard_embed(), view=MusicDashboardView(self)
-                )
+                await self._edit_dashboard(dashboard_message)
         except asyncio.CancelledError:
             raise
         finally:
@@ -568,22 +576,22 @@ class Music(commands.Cog):
                 )
                 return
 
-        embed = self._dashboard_embed()
+        embeds = self._dashboard_embeds()
         self.dashboard_channels.add(channel.id)
         state = self._state(guild.id)
         dashboard_message = await self._find_dashboard_message(guild, state)
         if dashboard_message:
-            await dashboard_message.edit(embed=embed, view=MusicDashboardView(self))
+            await self._edit_dashboard(dashboard_message, state.current, state)
         else:
             banner_path = "assets/honorary-music-dashboard-banner.png"
             try:
                 file = discord.File(banner_path, filename="honorary-music-dashboard-banner.png")
-                embed.set_image(url="attachment://honorary-music-dashboard-banner.png")
+                embeds[0].set_image(url="attachment://honorary-music-dashboard-banner.png")
                 dashboard_message = await channel.send(
-                    embed=embed, view=MusicDashboardView(self), file=file
+                    embeds=embeds, view=MusicDashboardView(self), file=file
                 )
             except FileNotFoundError:
-                dashboard_message = await channel.send(embed=embed, view=MusicDashboardView(self))
+                dashboard_message = await channel.send(embeds=embeds, view=MusicDashboardView(self))
             try:
                 await dashboard_message.pin(reason="명예회장봇 음악 대시보드를 채널 상단에 고정")
             except discord.Forbidden:
