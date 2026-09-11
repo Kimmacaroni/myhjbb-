@@ -396,7 +396,7 @@ class Music(commands.Cog):
         if voice is None:
             return
 
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         try:
             track = await self._track_from_query(
                 검색어, interaction.user.display_name, interaction.channel
@@ -417,16 +417,15 @@ class Music(commands.Cog):
         if state.task is None or state.task.done():
             state.task = asyncio.create_task(self._player_loop(interaction.guild, state))
             confirmation = await interaction.followup.send(
-                f"🎶 재생 목록에 추가: **{track.title}**", wait=True
+                f"🎶 재생 목록에 추가: **{track.title}**", wait=True, ephemeral=True
             )
         else:
             confirmation = await interaction.followup.send(
                 f"📥 대기열에 추가: **{track.title}** ({self._duration_text(track.duration)})",
                 wait=True,
+                ephemeral=True,
             )
-        if self._is_dashboard_channel(interaction.channel):
-            self.dashboard_channels.add(interaction.channel.id)
-            asyncio.create_task(self._delete_later(confirmation, 10))
+        asyncio.create_task(self._delete_later(confirmation, 5))
 
     @app_commands.command(name="일시정지", description="현재 음악을 일시정지합니다.")
     async def pause(self, interaction: discord.Interaction):
@@ -492,7 +491,10 @@ class Music(commands.Cog):
         if state.task and not state.task.done():
             state.task.cancel()
         voice = interaction.guild.voice_client
-        await interaction.response.send_message("⏹️ 재생과 대기열을 정리했습니다. 봇은 음성 채널에 머무릅니다.")
+        await interaction.response.send_message(
+            "⏹️ 재생과 대기열을 정리했습니다. 봇은 음성 채널에 머무릅니다.",
+            ephemeral=True, delete_after=5,
+        )
         if voice and voice.is_connected():
             schedule_idle(self.bot, interaction.guild)
 
@@ -538,7 +540,10 @@ class Music(commands.Cog):
         state.volume = 퍼센트 / 100
         if state.current_source:
             state.current_source.volume = state.volume
-        await interaction.response.send_message(f"🔊 볼륨을 **{퍼센트}%**로 설정했습니다.")
+        await interaction.response.send_message(
+            f"🔊 볼륨을 **{퍼센트}%**로 설정했습니다.",
+            ephemeral=True, delete_after=5,
+        )
         if interaction.guild.voice_client and not interaction.guild.voice_client.is_playing():
             schedule_idle(self.bot, interaction.guild)
 
