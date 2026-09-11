@@ -211,7 +211,7 @@ YTDLP_COOKIE_FILE=/opt/honorary-bot/youtube-cookies.txt
 - `/업데이트`: GitHub 작업 브랜치의 최신 코드를 검사 후 반영하고 재시작. 봇 소유자 전용
 - `/업데이트상태`: 최근 자동 업데이트 결과 확인. 봇 소유자 전용
 
-자동 업데이트는 `deploy/update_from_github.sh`가 GitHub 소스를 임시 경로에 내려받아 문법 검사와 의존성 설치를 먼저 수행한 후 `/opt/honorary-bot`에 반영한다. `.env`, `bot.db`, `youtube-cookies.txt`, `models/`는 GitHub 압축 파일에 포함되지 않으므로 유지된다. 실패하면 상태가 `/opt/honorary-bot/.update-status`에 기록된다.
+자동 업데이트는 `deploy/update_from_github.sh`가 VPS 전용 GitHub 읽기 전용 배포 키로 작업 브랜치를 임시 경로에 복제한다. 문법 검사와 의존성 설치를 먼저 수행한 후 `/opt/honorary-bot`에 반영한다. `.env`, `bot.db`, `youtube-cookies.txt`, `models/`는 저장소에 포함되지 않으므로 유지된다. 실패하면 상태가 `/opt/honorary-bot/.update-status`에 기록된다. 배포 키의 개인키는 `/opt/honorary-bot/.github-deploy-key`에 권한 `600`으로 보관하며 GitHub나 문서에 커밋하지 않는다.
 
 ---
 
