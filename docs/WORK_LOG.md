@@ -125,3 +125,20 @@
 - 토큰 상태: 과거 평문 토큰의 폐기·재발급은 저장소에서 확인할 수 없어 완료로 기록하지 않음 — 운영자 확인 필요
 - push: 수행하지 않음 (사용자 명시적 승인 없음)
 - 배포: 수행하지 않음 (사용자 명시적 승인 없음)
+
+---
+
+## 2026-09-11 — 독립 QA·GitHub PR·서비스별 보고서 기록
+
+- 상태: 구현 완료 / QA 완료 / push 완료 / 배포 미승인
+- 참조 기록: `2026-09-11 — VPS 기능 보존 코드 정리`
+- 담당 주체: 형상관리 담당
+- QA 검토자: 독립 QA·보안 검토부
+- 브랜치: `refactor/vps-feature-cleanup`
+- worktree: `$WORKTREE`
+- 수행 내용: 서비스별 보고서 `docs/REFACTOR_REPORT_2026-09-11_KO.md` 추가 및 GitHub 검토 브랜치 반영
+- Pull Request: <https://github.com/Kimmacaroni/myhjbb-/pull/3>
+- 검증: Python 단위 테스트 9/9, compileall·구조 검사, Cloudflare npm test 전체 통과, Cog 7개·명령 30개 보존
+- push: 검토 브랜치 반영 완료
+- 배포: VPS 배포 수행하지 않음
+- 배포 전 조건: `BOT_OWNER_IDS` 설정과 과거 Discord 토큰 폐기·재발급 상태 확인
