@@ -13,6 +13,7 @@ from discord.ext import commands
 
 from experimental.huggingface_korean_tts import HuggingFaceKoreanTTS, VOICE_OPTIONS
 from voice_idle import cancel_idle, schedule_idle
+from voice_playback import wait_for_playback
 
 log = logging.getLogger(__name__)
 
@@ -86,18 +87,9 @@ class KoreanTTS(commands.Cog):
                     style=말투 or "따뜻하고 자연스러운 말투로 말해 주세요.",
                 )
 
-                finished = asyncio.get_running_loop().create_future()
-
-                def after_playing(error: Exception | None):
-                    def mark_finished():
-                        if not finished.done():
-                            finished.set_result(error)
-
-                    self.bot.loop.call_soon_threadsafe(mark_finished)
-
-                voice.play(discord.FFmpegPCMAudio(str(output)), after=after_playing)
+                source = discord.FFmpegPCMAudio(str(output))
                 await interaction.followup.send("🔊 음성을 재생합니다.", ephemeral=True)
-                error = await finished
+                error = await wait_for_playback(voice, source)
                 if error:
                     raise RuntimeError(str(error))
             except Exception as exc:

@@ -102,6 +102,7 @@ GitHub 작업은 루트 [`AGENTS.md`](../AGENTS.md)의 작업·보안·배포 �
 DISCORD_TOKEN=
 GUILD_ID=
 DB_PATH=bot.db
+BOT_OWNER_IDS=
 
 MENU_HOUR_KST=6
 ENABLE_MENU_TASK=1
@@ -114,6 +115,10 @@ YTDLP_COOKIE_FILE=/opt/honorary-bot/youtube-cookies.txt
 ```
 
 추가 레벨/음성 관련 변수는 `.env.example`과 `config.py`를 확인한다.
+
+`BOT_OWNER_IDS`는 관리자 명령에 대한 명시적 소유자 예외 목록이며 쉼표로
+구분한다. 비워 두거나 잘못 입력하면 예외 권한을 부여하지 않는다. 개인 Discord
+ID는 코드나 문서에 기록하지 않고 VPS `.env`에서만 관리한다.
 
 중요 사항:
 
@@ -408,11 +413,16 @@ git status
 git diff --check
 git add <변경 파일>
 git commit -m "변경 내용을 설명하는 메시지"
-# 사용자가 이 push를 명시적으로 승인한 경우에만 실행
-git push origin HEAD
+# 작업 브랜치 push를 사용자가 명시적으로 승인한 경우에만 실행
+git push -u origin HEAD
+
+# 공식 기준 브랜치 반영은 대상 브랜치 push를 별도로 명시 승인받고,
+# 독립 QA 및 원격 최신 상태 확인 후에만 실행 (일반 push이므로 non-fast-forward는 거부됨)
+git fetch origin claude/how-it-works-x3928d
+git push origin HEAD:refs/heads/claude/how-it-works-x3928d
 ```
 
-당분간 공식 기준인 `claude/how-it-works-x3928d`를 유지한다. `main`은 레거시이며, 검증된 통합과 사용자의 명시적 전환 승인 전에는 공식 기준으로 바꾸지 않는다. 운영 자동 배포가 다른 브랜치를 감시한다면 어떤 push·배포도 실행하기 전에 정책과 사용자 승인을 각각 확인한다.
+당분간 공식 기준인 `claude/how-it-works-x3928d`를 유지한다. 작업 브랜치 push 승인과 공식 기준 브랜치 push 승인은 서로 다르며, `HEAD:<공식 브랜치>` 반영은 사용자가 대상 브랜치를 명시한 경우에만 수행한다. `main`은 레거시이며, 검증된 통합과 사용자의 명시적 전환 승인 전에는 공식 기준으로 바꾸지 않는다. 현재 저장소에는 VPS 자동 배포 workflow가 없고 Cloudflare 배포 workflow만 공식 기준 브랜치의 `cloudflare/**` 변경을 감시하므로, push와 각 배포 영향은 실행 전에 따로 확인한다.
 
 ### 자동 배포 권장 방식
 

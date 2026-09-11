@@ -203,6 +203,10 @@ export $(grep -v '^#' .env | xargs)
 python bot.py
 ```
 
+관리 명령에 봇 소유자 예외가 필요하면 `.env`의 `BOT_OWNER_IDS`에 Discord 사용자
+ID를 쉼표로 구분해 넣으세요. 비워 두거나 잘못 입력하면 소유자 예외 없이 서버
+관리자 권한만 허용됩니다. 개인 ID를 코드·문서·작업 기록에 하드코딩하지 마세요.
+
 > 🚧 **교통정보 알림을 쓰려면** [data.ex.co.kr](https://data.ex.co.kr) 에서
 > 무료로 회원가입 후 Open API 인증키를 발급받아 `.env`의 `HIGHWAY_API_KEY`에
 > 넣어 주세요. 비워두면 이 기능만 조용히 꺼지고 나머지는 정상 동작합니다.
@@ -324,7 +328,12 @@ menu_source.py      식단 조회·임베드 생성 (아래 두 실행 방식이
 traffic_source.py   교통정보 조회·텍스트 포맷 생성
 food_bot.py         GitHub Actions 전용 단발 실행 스크립트
 .github/workflows/main.yml   매일 6시 Actions 스케줄
+.github/workflows/deploy-cloudflare.yml   공식 기준 브랜치의 Cloudflare 변경 배포
 ```
+
+현재 저장소에 있는 workflow는 위 두 개뿐입니다. **VPS 자동 배포 workflow는
+존재하지 않으며**, 문서의 GitHub → VPS 자동 배포 내용은 사용자 승인 후 별도로
+구현할 권장안이지 현재 동작 중인 기능이 아닙니다.
 
 식단 형식을 바꾸고 싶으면 `menu_source.py` 한 곳만 고치면 양쪽에 함께 반영됩니다.
 교통정보도 마찬가지로 `traffic_source.py` 한 곳만 고치면 됩니다 (다만 이 기능은
@@ -348,9 +357,10 @@ GitHub Actions 경로에는 없습니다).
 ## 🔐 보안 주의
 
 이제 모든 스크립트가 토큰을 환경변수에서만 읽습니다. 다만 **예전 커밋 이력에는
-토큰이 그대로 남아 있습니다.** 저장소가 공개 상태라면 반드시
-**토큰을 재발급(Reset Token)** 하고 새 토큰을 Secret 으로 등록하세요.
-재발급하면 유출된 옛 토큰은 즉시 무효가 됩니다.
+평문 토큰이 남아 있었던 것으로 기록되어 있습니다.** 저장소 문서만으로는 해당
+토큰의 폐기·재발급 완료 여부를 확인할 수 없으므로 현재 상태는 **확인 필요**입니다.
+운영자가 Discord 개발자 포털에서 기존 토큰 폐기와 새 토큰 재발급을 직접 확인하고
+Secret/VPS 환경변수를 갱신해야 합니다. 확인 증거 없이 완료로 기록하지 마세요.
 
 ---
 
