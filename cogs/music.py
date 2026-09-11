@@ -105,6 +105,17 @@ class MusicDashboardView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
+        log.exception("음악 대시보드 버튼 처리 실패: %s", getattr(item, "custom_id", None), exc_info=error)
+        message = "❌ 버튼 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except discord.HTTPException:
+            pass
+
     @discord.ui.button(label="재생", emoji="🎵", style=discord.ButtonStyle.primary, custom_id="honorary_music:play")
     async def play_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(MusicSearchModal(self.cog))
@@ -155,11 +166,72 @@ class Music(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """대시보드 채널의 일반 채팅은 조작 화면을 깔끔하게 유지합니다."""
+        """대시보드 채널의 일반 문장을 음악 검색어로 처리합니다."""
         if message.author.bot or not self._is_dashboard_channel(message.channel):
             return
         self.dashboard_channels.add(message.channel.id)
         asyncio.create_task(self._delete_later(message, 5))
+        query = message.content.strip()
+        if not query:
+            return
+        asyncio.create_task(self._play_from_message(message, query))
+
+    async def _temporary_channel_message(
+        self, channel: discord.abc.Messageable, content: str, seconds: int = 5
+    ) -> None:
+        try:
+            sent = await channel.send(content)
+        except (discord.Forbidden, discord.HTTPException):
+            return
+        asyncio.create_task(self._delete_later(sent, seconds))
+
+    async def _play_from_message(self, message: discord.Message, query: str) -> None:
+        guild = message.guild
+        member = message.author
+        member_voice = getattr(member, "voice", None)
+        if guild is None or not member_voice or not member_voice.channel:
+            await self._temporary_channel_message(
+                message.channel, f"{member.mention} 먼저 음성 채널에 들어가 주세요."
+            )
+            return
+
+        cancel_idle(self.bot, guild.id)
+        voice = guild.voice_client
+        try:
+            if voice and voice.is_connected():
+                if voice.channel != member_voice.channel:
+                    state = self._state(guild.id)
+                    if voice.is_playing() or voice.is_paused() or state.queue:
+                        await self._temporary_channel_message(
+                            message.channel,
+                            f"{member.mention} 이미 {voice.channel.mention}에서 재생 중입니다.",
+                        )
+                        return
+                    await voice.move_to(member_voice.channel)
+                    await guild.change_voice_state(channel=member_voice.channel, self_deaf=True)
+            else:
+                voice = await member_voice.channel.connect(self_deaf=True)
+
+            track = await self._track_from_query(query, member.display_name, message.channel)
+        except Exception as exc:
+            log.exception("음악 채널 메시지 검색 실패")
+            detail = "유튜브 검색에 실패했습니다. 잠시 후 다시 시도해 주세요."
+            if "Sign in to confirm you're not a bot" in str(exc):
+                detail = "유튜브 인증 쿠키를 갱신해야 합니다."
+            await self._temporary_channel_message(message.channel, f"{member.mention} ❌ {detail}")
+            return
+
+        state = self._state(guild.id)
+        state.queue.append(track)
+        if state.task is None or state.task.done():
+            state.task = asyncio.create_task(self._player_loop(guild, state))
+            text = f"{member.mention} 🎶 재생 목록에 추가: **{track.title}**"
+        else:
+            text = (
+                f"{member.mention} 📥 대기열에 추가: **{track.title}** "
+                f"({self._duration_text(track.duration)})"
+            )
+        await self._temporary_channel_message(message.channel, text)
 
     def _state(self, guild_id: int) -> PlayerState:
         return self.players.setdefault(guild_id, PlayerState())
@@ -193,6 +265,7 @@ class Music(commands.Cog):
             name="🎵 버튼 사용법",
             value=(
                 "**재생** — 곡명 또는 유튜브 URL 입력\n"
+                "**채팅 검색** — 이 채널에 `아이유 좋은날`처럼 바로 입력\n"
                 "**대기열** — 현재 재생·다음 곡 확인\n"
                 "**일시정지 / 스킵 / 정지** — 재생 상태 제어"
             ),
@@ -227,7 +300,14 @@ class Music(commands.Cog):
         elif os.path.isfile("assets/honorary-music-dashboard-banner.png"):
             attachments.append(discord.File("assets/honorary-music-dashboard-banner.png"))
             embeds[0].set_image(url="attachment://honorary-music-dashboard-banner.png")
-        updated = await message.edit(embeds=embeds, attachments=attachments, view=MusicDashboardView(self))
+        try:
+            updated = await message.edit(
+                embeds=embeds, attachments=attachments, view=MusicDashboardView(self)
+            )
+        except discord.NotFound:
+            if message.guild:
+                self._state(message.guild.id).dashboard_message = None
+            raise
         if message.guild:
             self._state(message.guild.id).dashboard_message = updated
 
@@ -245,6 +325,8 @@ class Music(commands.Cog):
             if message:
                 try:
                     await self._edit_dashboard(message, state.current, state)
+                except discord.NotFound:
+                    state.dashboard_message = None
                 except discord.HTTPException:
                     log.exception("음악 대시보드 복원 실패 (서버: %s)", guild.id)
 
@@ -346,10 +428,14 @@ class Music(commands.Cog):
                     voice.play(source, after=after_playing)
                     dashboard_message = await self._find_dashboard_message(guild, state)
                     if dashboard_message:
-                        await self._edit_dashboard(dashboard_message, track, state)
-                        state.progress_task = asyncio.create_task(
-                            self._update_progress(dashboard_message, track, state)
-                        )
+                        try:
+                            await self._edit_dashboard(dashboard_message, track, state)
+                        except discord.NotFound:
+                            dashboard_message = await self._find_dashboard_message(guild, state)
+                        if dashboard_message:
+                            state.progress_task = asyncio.create_task(
+                                self._update_progress(dashboard_message, track, state)
+                            )
                     error = await finished
                     if error:
                         log.warning("음악 재생 오류: %s", error)
@@ -369,7 +455,10 @@ class Music(commands.Cog):
                 schedule_idle(self.bot, guild)
             dashboard_message = await self._find_dashboard_message(guild, state)
             if dashboard_message:
-                await self._edit_dashboard(dashboard_message)
+                try:
+                    await self._edit_dashboard(dashboard_message)
+                except discord.NotFound:
+                    pass
         except asyncio.CancelledError:
             raise
         finally:
@@ -505,6 +594,14 @@ class Music(commands.Cog):
         if state.task and not state.task.done():
             state.task.cancel()
         voice = interaction.guild.voice_client
+        if voice and (voice.is_playing() or voice.is_paused()):
+            voice.stop()
+        dashboard_message = await self._find_dashboard_message(interaction.guild, state)
+        if dashboard_message:
+            try:
+                await self._edit_dashboard(dashboard_message)
+            except discord.NotFound:
+                pass
         await interaction.response.send_message(
             "⏹️ 재생과 대기열을 정리했습니다. 봇은 음성 채널에 머무릅니다.",
             ephemeral=True, delete_after=5,

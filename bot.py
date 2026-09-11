@@ -40,7 +40,8 @@ class HonoraryBot(commands.Bot):
         intents.members = True
         # 통화방 참여 감지와 음성 채널 음악 재생에 필요합니다.
         intents.voice_states = True
-        # 명령어는 전부 슬래시 명령어라 message_content 인텐트는 필요 없습니다.
+        # 음악 대시보드 채널에서 곡명만 입력해도 재생할 수 있도록 메시지 내용을 읽습니다.
+        intents.message_content = True
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self._synced = False
 
