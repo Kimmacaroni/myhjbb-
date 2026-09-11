@@ -27,6 +27,39 @@
 
 음악과 TTS는 지속적인 Discord 음성 연결, FFmpeg, Python 네이티브 패키지와 메모리가 필요하므로 Cloudflare Workers로 완전히 이전하지 않는다. 실제 봇 프로세스는 VPS에서 유지하는 것이 적합하다.
 
+### 2026-09-11 최신 동기화 상태
+
+- GitHub 최신 작업 브랜치: `claude/how-it-works-x3928d`
+- `main`에는 아직 아래 최신 기능이 병합되지 않았다. 다른 기기에서는 반드시 작업 브랜치를 체크아웃한다.
+- 운영 VPS에 반영된 최신 코드 커밋: `2fe0977`
+- 운영 서비스 상태: `honorary-bot.service` 정상 실행 확인
+- 로컬 작업 트리: 문서 갱신 직전 기준 미커밋 변경 없음
+- 최신 변경:
+  - `92b3a68`: 재생·대기열·정지·볼륨 응답을 실행한 사용자에게만 보이고 5초 뒤 만료
+  - `1e42ba9`: 음악 메인 임베드와 현재 재생 임베드를 분리하고 메인 배너 복원
+  - `deb4bea`: Sherpa-ONNX TTS 시작 시 예열 및 음성 연결과 합성 병렬화
+  - `2fe0977`: 음악 대시보드 채널에서 일반 채팅을 곧바로 음악 검색어로 처리
+
+### 다른 기기에서 바로 이어서 작업하기
+
+```bash
+git clone https://github.com/Kimmacaroni/myhjbb-.git
+cd myhjbb-
+git fetch origin
+git switch --track origin/claude/how-it-works-x3928d
+git pull --ff-only
+```
+
+이미 복제한 저장소라면 다음만 실행한다.
+
+```bash
+git fetch origin
+git switch claude/how-it-works-x3928d
+git pull --ff-only
+```
+
+작업을 시작하기 전에 이 문서와 `README.md`를 읽고 `git status`가 깨끗한지 확인한다. 비밀값은 GitHub에 없으므로 실제 배포에는 VPS의 기존 `.env`, `bot.db`, `youtube-cookies.txt`, `models/`를 그대로 보존해야 한다.
+
 ---
 
 ## 2. 인수인계 시 가장 먼저 할 일
@@ -197,9 +230,13 @@ YTDLP_COOKIE_FILE=/opt/honorary-bot/youtube-cookies.txt
 - 곡이 바뀌어도 새 메시지를 만들지 않고 같은 고정 대시보드 메시지를 수정
 - 재생이 끝나면 같은 위치에 `현재 재생 중인 곡이 없습니다.` 표시
 - 대시보드 버튼의 Command 객체 직접 호출 오류 수정
-- 대시보드 채널의 일반 사용자 메시지는 5초 후 삭제
-- `재생 목록에 추가` 및 `대기열에 추가` 안내는 10초 후 삭제
+- 대시보드 채널에서 `아이유 좋은날`처럼 일반 메시지를 입력해도 자동으로 검색·재생
+- 대시보드 채널의 사용자 검색 메시지는 처리 직후 삭제
+- `재생 목록에 추가`, 재생·대기열·정지·볼륨 안내는 실행한 사용자에게만 노출되고 5초 뒤 만료
 - 재시작 뒤 채널 캐시가 비어도 채널 이름과 고정 메시지로 대시보드 복원
+- 삭제되거나 오래된 대시보드 메시지 ID를 감지하면 캐시를 초기화하고 다시 생성
+- 메인 안내 임베드와 현재 재생 임베드를 분리하고, 현재 곡 임베드만 곡 변경 시 같은 위치에서 갱신
+- 일반 메시지 검색을 위해 Discord Developer Portal의 Message Content Intent와 코드의 `intents.message_content`를 모두 활성화
 
 ### YouTube 관련 구성
 
@@ -280,6 +317,9 @@ Sherpa-ONNX 기본 음성 기준:
 - `4a926df` — 한국어 TTS 음성 재생 추가
 - `52b0229` — 빠른 한국어 ONNX TTS를 기본으로 변경
 - `9624269` — 음성 연결을 유지하고 유휴 시에만 퇴장
+- `deb4bea` — 시작 시 기본 모델 예열, TTS 합성과 Discord 음성 연결 병렬화, 모델별 잠금 분리
+
+운영 점검 중 VPS의 `cogs/tts.py`가 GitHub와 달리 Qwen `sohee`를 기본값으로 사용하던 상태를 발견했다. 운영 파일을 GitHub 코드와 맞춰 Sherpa-ONNX `fast_korean`을 기본값으로 복구했고, 재시작 로그에서 기본 모델 준비 완료를 확인했다. 예열 후 실제 VPS 합성 측정은 16자 약 0.18~0.38초, 32자 약 0.20~0.54초였다. 이는 합성 시간이며 Discord 연결과 재생 준비 시간은 별도다.
 
 ---
 
@@ -424,6 +464,11 @@ git push origin HEAD
 최근 핵심 커밋:
 
 ```text
+2fe0977 feat: play music from dashboard channel messages
+deb4bea perf: warm fast TTS and overlap synthesis with voice connection
+1e42ba9 fix: split dashboard and now playing embeds and restore banner
+92b3a68 fix: make music confirmations private and expire after five seconds
+f3c4297 docs: add Hermes agent project handoff
 bd357b5 fix: keep now playing inside pinned dashboard
 bc9d775 fix: invoke music commands from dashboard controls
 52b0229 perf: use fast Korean ONNX TTS by default
@@ -537,5 +582,4 @@ Hermes Agent에 전달할 수 있는 자료:
 ## 18. 문서 한계
 
 이 문서는 현재 대화에서 확인 가능한 요청과 실제 코드·VPS 점검 결과를 토대로 작성한 기술 인수인계 요약이다. 서비스의 전체 원본 대화 내보내기 파일은 아니며, 메시지별 전문 대신 새 에이전트가 작업을 이어가는 데 필요한 결정, 구현 내용, 오류, 운영 방법과 남은 과제를 구조화했다. 최종 사실 확인은 저장소 코드, Git 기록, VPS 상태와 Discord 실제 동작을 기준으로 한다.
-
 

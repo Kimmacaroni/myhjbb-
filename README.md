@@ -1,5 +1,9 @@
 # 🤖 명예회장봇 (Honorary Chairman Bot)
 
+> 다른 기기에서 개발을 이어갈 때는 `main`이 아니라 최신 작업 브랜치
+> `claude/how-it-works-x3928d`를 체크아웃하고
+> [`docs/HERMES_AGENT_HANDOFF_KO.md`](docs/HERMES_AGENT_HANDOFF_KO.md)를 먼저 읽으세요.
+
 KD 사우 가족을 위한 디스코드 봇입니다. 매일 아침 식단표를 알려주고, 고속도로
 심한 정체 구간을 실시간으로 알려주며, 서버 활동에 따라 경험치 · 레벨 · 칭호를
 자동으로 관리합니다.
@@ -177,10 +181,12 @@ Cloudflare Workers의 Cron Trigger로 충분합니다 — 다만 GitHub Actions�
 ### 1. 디스코드 개발자 포털 설정
 1. [Developer Portal](https://discord.com/developers/applications) → 해당 앱 → **Bot**
 2. **Privileged Gateway Intents** 에서 **SERVER MEMBERS INTENT** 를 켭니다
-   (역할 지급과 랭킹 표시에 필요합니다. Message Content Intent는 필요 없습니다.)
-3. 음악 기능은 별도 특권 인텐트가 필요하지 않습니다. 다만 봇 역할에 **음성 연결**과
+   (역할 지급과 랭킹 표시에 필요합니다.)
+3. 같은 화면에서 **MESSAGE CONTENT INTENT**도 켭니다.
+   (`회장님의-뮤직피아` 채널에 가수명과 곡명만 입력해 재생하는 기능에 필요합니다.)
+4. 봇 역할에 **음성 연결**과
    **말하기** 권한을 허용해 주세요.
-3. **Reset Token** 으로 토큰을 발급받습니다
+5. **Reset Token** 으로 토큰을 발급받습니다
 
 ### 2. 봇 초대 권한
 `역할 관리(Manage Roles)`, `메시지 보내기`, `링크 첨부` 권한이 필요합니다.
