@@ -55,6 +55,13 @@ class HuggingFaceKoreanTTS:
         self._mms_tokenizer = None
         self._torch = None
         self._lock = Lock()
+        self._fast_lock = Lock()
+
+    def warmup(self) -> None:
+        """운영 요청 전에 모델과 첫 추론을 준비한다. 파일은 생성하지 않는다."""
+        with self._fast_lock:
+            self._load_fast()
+            self._fast_model.generate("안녕하세요", sid=0, speed=1.0)
 
     @staticmethod
     def available_voices() -> dict[str, str]:
@@ -69,6 +76,7 @@ class HuggingFaceKoreanTTS:
         except ImportError as exc:
             raise RuntimeError("requirements-tts.txt의 패키지를 설치하세요.") from exc
         self._torch = torch
+        torch.set_num_threads(2)
         has_cuda = torch.cuda.is_available()
         requested_device = "cuda:0" if has_cuda else "cpu"
         self._qwen_model = Qwen3TTSModel.from_pretrained(
@@ -155,7 +163,7 @@ class HuggingFaceKoreanTTS:
             raise ValueError(f"지원하지 않는 목소리입니다: {selected}")
 
         destination = Path(output_path).expanduser().resolve()
-        with self._lock:
+        with (self._fast_lock if selected == "fast_korean" else self._lock):
             if selected == "fast_korean":
                 self._load_fast()
                 audio = self._fast_model.generate(cleaned, sid=0, speed=1.0)

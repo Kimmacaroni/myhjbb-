@@ -232,6 +232,12 @@ class Music(commands.Cog):
             self._state(message.guild.id).dashboard_message = updated
 
     @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload):
+        for state in self.players.values():
+            if state.dashboard_message and state.dashboard_message.id == payload.message_id:
+                state.dashboard_message = None
+
+    @commands.Cog.listener()
     async def on_ready(self):
         for guild in self.bot.guilds:
             state = self._state(guild.id)
@@ -376,7 +382,7 @@ class Music(commands.Cog):
         member = interaction.user
         voice_state = getattr(member, "voice", None)
         if not voice_state or not voice_state.channel:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "먼저 재생할 음성 채널에 들어가 주세요.", ephemeral=True
             )
             return None
@@ -387,7 +393,7 @@ class Music(commands.Cog):
             if current.channel != voice_state.channel:
                 state = self._state(guild.id)
                 if current.is_playing() or state.queue:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f"이미 {current.channel.mention}에서 재생 중입니다.", ephemeral=True
                     )
                     return None
@@ -400,11 +406,11 @@ class Music(commands.Cog):
     @app_commands.command(name="재생", description="유튜브 URL 또는 검색어를 음성 채널에서 재생합니다.")
     @app_commands.describe(검색어="유튜브 URL 또는 가수명과 노래 제목")
     async def play(self, interaction: discord.Interaction, 검색어: str):
+        await interaction.response.defer(ephemeral=True)
         voice = await self._connect_for(interaction)
         if voice is None:
             return
 
-        await interaction.response.defer(ephemeral=True)
         try:
             track = await self._track_from_query(
                 검색어, interaction.user.display_name, interaction.channel
@@ -581,8 +587,12 @@ class Music(commands.Cog):
         state = self._state(guild.id)
         dashboard_message = await self._find_dashboard_message(guild, state)
         if dashboard_message:
-            await self._edit_dashboard(dashboard_message, state.current, state)
-        else:
+            try:
+                await self._edit_dashboard(dashboard_message, state.current, state)
+            except discord.NotFound:
+                state.dashboard_message = None
+                dashboard_message = None
+        if dashboard_message is None:
             banner_path = "assets/honorary-music-dashboard-banner.png"
             try:
                 file = discord.File(banner_path, filename="honorary-music-dashboard-banner.png")
