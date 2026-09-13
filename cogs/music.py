@@ -459,6 +459,17 @@ class Music(commands.Cog):
                             await self._edit_dashboard(dashboard_message, track, state)
                         except discord.NotFound:
                             dashboard_message = await self._find_dashboard_message(guild, state)
+                            if dashboard_message:
+                                try:
+                                    await self._edit_dashboard(dashboard_message, track, state)
+                                except (discord.Forbidden, discord.HTTPException):
+                                    log.exception("현재 재생 대시보드 갱신 실패")
+                                    dashboard_message = None
+                        except (discord.Forbidden, discord.HTTPException):
+                            # 대시보드 갱신에 실패해도 이미 시작한 음성 재생까지
+                            # 중단시키면 안 됩니다. 다음 갱신 기회에 다시 시도합니다.
+                            log.exception("현재 재생 대시보드 갱신 실패")
+                            dashboard_message = None
                         if dashboard_message:
                             state.progress_task = asyncio.create_task(
                                 self._update_progress(dashboard_message, track, state)
@@ -565,7 +576,7 @@ class Music(commands.Cog):
             await interaction.response.send_message("지금 재생 중인 음악이 없습니다.", ephemeral=True)
             return
         voice.pause()
-        await interaction.response.send_message("⏸️ 일시정지했습니다.")
+        await interaction.response.send_message("⏸️ 일시정지했습니다.", ephemeral=True)
         schedule_idle(self.bot, interaction.guild)
 
     @app_commands.command(name="재개", description="일시정지한 음악을 다시 재생합니다.")
@@ -576,7 +587,7 @@ class Music(commands.Cog):
             await interaction.response.send_message("일시정지된 음악이 없습니다.", ephemeral=True)
             return
         voice.resume()
-        await interaction.response.send_message("▶️ 재생을 이어갑니다.")
+        await interaction.response.send_message("▶️ 재생을 이어갑니다.", ephemeral=True)
 
     @app_commands.command(name="스킵", description="현재 음악을 건너뜁니다.")
     async def skip(self, interaction: discord.Interaction):
@@ -586,7 +597,7 @@ class Music(commands.Cog):
             await interaction.response.send_message("건너뛸 음악이 없습니다.", ephemeral=True)
             return
         voice.stop()
-        await interaction.response.send_message("⏭️ 다음 곡으로 넘어갑니다.")
+        await interaction.response.send_message("⏭️ 다음 곡으로 넘어갑니다.", ephemeral=True)
 
     @app_commands.command(name="이동", description="현재 음악의 원하는 시점(초)으로 이동합니다.")
     @app_commands.describe(초="이동할 시점. 예: 90은 1분 30초")
@@ -610,7 +621,7 @@ class Music(commands.Cog):
             state.progress_task.cancel()
         voice.stop()
         await interaction.response.send_message(
-            f"⏩ **{self._duration_text(초)}** 지점으로 이동합니다."
+            f"⏩ **{self._duration_text(초)}** 지점으로 이동합니다.", ephemeral=True
         )
 
     @app_commands.command(name="정지", description="대기열을 비우고 음악 재생을 끝냅니다.")
@@ -648,7 +659,7 @@ class Music(commands.Cog):
             await interaction.response.send_message("현재 음성 채널에 들어가 있지 않습니다.", ephemeral=True)
             return
         await voice.disconnect()
-        await interaction.response.send_message("👋 음성 채널에서 퇴장했습니다.")
+        await interaction.response.send_message("👋 음성 채널에서 퇴장했습니다.", ephemeral=True)
 
     @app_commands.command(name="대기열", description="현재 음악 대기열을 확인합니다.")
     async def queue(self, interaction: discord.Interaction):
@@ -666,7 +677,7 @@ class Music(commands.Cog):
                 lines.append(f"… 외 {len(state.queue) - 10}곡")
         if not lines:
             lines.append("대기열이 비어 있습니다.")
-        await interaction.response.send_message("\n".join(lines))
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
         if interaction.guild.voice_client:
             schedule_idle(self.bot, interaction.guild)
 
