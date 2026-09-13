@@ -24,6 +24,6 @@
 - 검증:
   - `git diff --check` 통과
   - `python3 -m compileall -q -x '(^|/)(.git|.venv|venv|models)(/|$)' .` 통과
-- 커밋 SHA: 미커밋
+- 커밋 SHA: `879ab83` (`fix: keep music responses private and dashboard resilient`)
 - push: 미실행 (사용자 승인 필요)
 - VPS 배포: 미실행 (사용자 승인 필요). 실제 Discord 버튼·음성 재생 검증은 승인된 배포 뒤 수행한다.
