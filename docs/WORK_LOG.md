@@ -27,3 +27,11 @@
 - 커밋 SHA: `879ab83` (`fix: keep music responses private and dashboard resilient`)
 - push: 미실행 (사용자 승인 필요)
 - VPS 배포: 미실행 (사용자 승인 필요). 실제 Discord 버튼·음성 재생 검증은 승인된 배포 뒤 수행한다.
+
+## 2026-09-13 KST — GitHub 반영 및 VPS 배포 시도
+
+- push: 완료. 원격 브랜치 `fix/music-dashboard-cleanup`에 `879ab83`, `3f66970`를 반영했다.
+- VPS 기준 점검: `/opt/honorary-bot/cogs/music.py`는 수정 전 기준 SHA와 일치했고, `honorary-bot.service`는 active였다.
+- 보호 대상 확인: `.env`, `bot.db`, YouTube 쿠키 파일이 존재함을 확인했으며 내용은 읽거나 변경하지 않았다.
+- 배포 상태: 보류. 현재 SSH 계정은 `/opt/honorary-bot`과 `honorary-bot.service`의 root 권한을 갖지 않아 백업·파일 반영·서비스 재시작을 수행할 수 없었다.
+- 후속 작업: root 권한이 있는 운영 경로에서 수정 파일을 반영하고, 가상환경 문법 검사·서비스 재시작·Discord 실제 재생 및 대시보드 갱신을 확인한다.
