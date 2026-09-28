@@ -176,14 +176,16 @@ class Music(commands.Cog):
         if message.author.bot or not self._is_dashboard_channel(message.channel):
             return
         self.dashboard_channels.add(message.channel.id)
-        asyncio.create_task(self._delete_later(message, 5))
+        # 대시보드 자체는 고정해 두되, 검색어를 포함한 일반 대화는 채널을
+        # 정리할 수 있도록 10초 뒤 삭제합니다.
+        asyncio.create_task(self._delete_later(message, 10))
         query = message.content.strip()
         if not query:
             return
         asyncio.create_task(self._play_from_message(message, query))
 
     async def _temporary_channel_message(
-        self, channel: discord.abc.Messageable, content: str, seconds: int = 5
+        self, channel: discord.abc.Messageable, content: str, seconds: int = 10
     ) -> None:
         try:
             sent = await channel.send(content)
@@ -481,7 +483,10 @@ class Music(commands.Cog):
                     raise
                 except Exception as exc:
                     log.exception("음악 재생 준비 실패")
-                    await track.channel.send(f"❌ **{track.title}** 재생에 실패해 다음 곡으로 넘어갑니다: {exc}")
+                    await self._temporary_channel_message(
+                        track.channel,
+                        f"❌ **{track.title}** 재생에 실패해 다음 곡으로 넘어갑니다: {exc}",
+                    )
                 finally:
                     if state.progress_task:
                         state.progress_task.cancel()
