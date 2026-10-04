@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque
@@ -23,6 +24,8 @@ log = logging.getLogger(__name__)
 
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 FFMPEG_OPTIONS = "-vn"
+# YouTube의 서명된 스트림 URL은 유효 시간이 있으므로, 다음 곡만 짧게 선준비한다.
+STREAM_URL_CACHE_SECONDS = 15 * 60
 
 YTDLP_OPTIONS = {
     "format": "bestaudio/best",
@@ -54,6 +57,9 @@ class Track:
     requester: str
     channel: discord.abc.Messageable
     start_at: int = 0
+    stream_url: str | None = None
+    stream_url_obtained_at: float = 0.0
+    stream_task: asyncio.Task[dict] | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -205,6 +211,9 @@ class Music(commands.Cog):
 
         cancel_idle(self.bot, guild.id)
         voice = guild.voice_client
+        track_task = asyncio.create_task(
+            self._track_from_query(query, member.display_name, message.channel)
+        )
         try:
             if voice and voice.is_connected():
                 if voice.channel != member_voice.channel:
@@ -214,14 +223,18 @@ class Music(commands.Cog):
                             message.channel,
                             f"{member.mention} 이미 {voice.channel.mention}에서 재생 중입니다.",
                         )
+                        track_task.cancel()
+                        await asyncio.gather(track_task, return_exceptions=True)
                         return
                     await voice.move_to(member_voice.channel)
                     await guild.change_voice_state(channel=member_voice.channel, self_deaf=True)
             else:
                 voice = await member_voice.channel.connect(self_deaf=True)
 
-            track = await self._track_from_query(query, member.display_name, message.channel)
+            track = await track_task
         except Exception as exc:
+            if not track_task.done():
+                track_task.cancel()
             log.exception("음악 채널 메시지 검색 실패")
             detail = "유튜브 검색에 실패했습니다. 잠시 후 다시 시도해 주세요."
             if "Sign in to confirm you're not a bot" in str(exc):
@@ -231,6 +244,7 @@ class Music(commands.Cog):
 
         state = self._state(guild.id)
         state.queue.append(track)
+        self._prefetch_next(state)
         if state.task is None or state.task.done():
             state.task = asyncio.create_task(self._player_loop(guild, state))
             text = f"{member.mention} 🎶 재생 목록에 추가: **{track.title}**"
@@ -408,6 +422,7 @@ class Music(commands.Cog):
     ) -> Track:
         info = await asyncio.to_thread(self._extract, query)
         url = info.get("webpage_url") or info.get("original_url") or query
+        stream_url = info.get("url")
         return Track(
             title=info.get("title") or "제목을 알 수 없는 음악",
             webpage_url=url,
@@ -415,15 +430,69 @@ class Music(commands.Cog):
             thumbnail=info.get("thumbnail"),
             requester=requester,
             channel=channel,
+            stream_url=stream_url,
+            stream_url_obtained_at=time.monotonic() if stream_url else 0.0,
+        )
+
+    @staticmethod
+    def _has_fresh_stream_url(track: Track) -> bool:
+        return bool(
+            track.stream_url
+            and time.monotonic() - track.stream_url_obtained_at < STREAM_URL_CACHE_SECONDS
         )
 
     async def _stream_url(self, track: Track) -> str:
-        # 유튜브의 실제 스트림 주소는 만료될 수 있어 재생 직전에 다시 얻습니다.
-        info = await asyncio.to_thread(self._extract, track.webpage_url)
+        if self._has_fresh_stream_url(track):
+            assert track.stream_url is not None
+            return track.stream_url
+
+        task = track.stream_task
+        if task is None or task.done():
+            task = asyncio.create_task(asyncio.to_thread(self._extract, track.webpage_url))
+            track.stream_task = task
+
+        try:
+            info = await asyncio.shield(task)
+        except Exception:
+            if track.stream_task is task:
+                track.stream_task = None
+            raise
+
+        if track.stream_task is task:
+            track.stream_task = None
         stream_url = info.get("url")
         if not stream_url:
             raise RuntimeError("오디오 스트림 주소를 찾지 못했습니다.")
+        track.stream_url = stream_url
+        track.stream_url_obtained_at = time.monotonic()
         return stream_url
+
+    def _prefetch_next(self, state: PlayerState) -> None:
+        if not state.queue:
+            return
+        track = state.queue[0]
+        if self._has_fresh_stream_url(track) or (track.stream_task and not track.stream_task.done()):
+            return
+
+        async def prepare() -> None:
+            try:
+                await self._stream_url(track)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # 선준비 실패는 실제 재생 시 한 번 더 시도해 사용자 재생을 막지 않는다.
+                log.info("다음 곡 선준비 실패: %s", track.title, exc_info=True)
+
+        asyncio.create_task(prepare())
+
+    @staticmethod
+    def _cancel_prefetches(state: PlayerState) -> None:
+        tracks = list(state.queue)
+        if state.current:
+            tracks.append(state.current)
+        for track in tracks:
+            if track.stream_task and not track.stream_task.done():
+                track.stream_task.cancel()
 
     async def _player_loop(self, guild: discord.Guild, state: PlayerState):
         voice = guild.voice_client
@@ -434,6 +503,8 @@ class Music(commands.Cog):
                 state.started_at = asyncio.get_running_loop().time()
 
                 try:
+                    # 현재 곡 재생을 시작하는 동안 다음 곡의 URL도 병렬로 준비한다.
+                    self._prefetch_next(state)
                     stream_url = await self._stream_url(track)
                     audio = discord.FFmpegPCMAudio(
                         stream_url,
@@ -539,15 +610,23 @@ class Music(commands.Cog):
     @app_commands.describe(검색어="유튜브 URL 또는 가수명과 노래 제목")
     async def play(self, interaction: discord.Interaction, 검색어: str):
         await interaction.response.defer(ephemeral=True)
-        voice = await self._connect_for(interaction)
-        if voice is None:
+        member_voice = getattr(interaction.user, "voice", None)
+        if not member_voice or not member_voice.channel:
+            await self._connect_for(interaction)
             return
 
+        # 음성 채널 연결과 YouTube 조회는 서로 의존하지 않으므로 동시에 시작한다.
+        voice_task = asyncio.create_task(self._connect_for(interaction))
+        track_task = asyncio.create_task(
+            self._track_from_query(검색어, interaction.user.display_name, interaction.channel)
+        )
         try:
-            track = await self._track_from_query(
-                검색어, interaction.user.display_name, interaction.channel
-            )
+            voice, track = await asyncio.gather(voice_task, track_task)
         except Exception as exc:
+            for task in (voice_task, track_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(voice_task, track_task, return_exceptions=True)
             log.exception("음악 검색 실패")
             message = f"❌ 음악을 찾지 못했습니다: {exc}"
             if "Sign in to confirm you're not a bot" in str(exc):
@@ -558,8 +637,12 @@ class Music(commands.Cog):
             await interaction.followup.send(message, ephemeral=True)
             return
 
+        if voice is None:
+            return
+
         state = self._state(interaction.guild.id)
         state.queue.append(track)
+        self._prefetch_next(state)
         if state.task is None or state.task.done():
             state.task = asyncio.create_task(self._player_loop(interaction.guild, state))
             confirmation = await interaction.followup.send(
@@ -633,6 +716,7 @@ class Music(commands.Cog):
     async def stop(self, interaction: discord.Interaction):
         cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
+        self._cancel_prefetches(state)
         state.queue.clear()
         if state.task and not state.task.done():
             state.task.cancel()
@@ -656,6 +740,7 @@ class Music(commands.Cog):
     async def leave(self, interaction: discord.Interaction):
         cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
+        self._cancel_prefetches(state)
         state.queue.clear()
         if state.task and not state.task.done():
             state.task.cancel()
@@ -758,6 +843,7 @@ class Music(commands.Cog):
 
     async def cog_unload(self):
         for state in self.players.values():
+            self._cancel_prefetches(state)
             if state.task and not state.task.done():
                 state.task.cancel()
 
