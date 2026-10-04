@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -27,6 +28,11 @@ FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max
 FFMPEG_OPTIONS = "-vn"
 # YouTube의 서명된 스트림 URL은 유효 시간이 있으므로, 다음 곡만 짧게 선준비한다.
 STREAM_URL_CACHE_SECONDS = 15 * 60
+YOUTUBE_URL_PATTERN = re.compile(r"^https?://", re.IGNORECASE)
+OFFICIAL_AUDIO_MARKERS = ("official audio", "provided to youtube")
+OFFICIAL_CHANNEL_MARKERS = (" - topic", "vevo")
+AUDIO_MARKERS = ("audio", "mp3", "음원")
+NON_AUDIO_MARKERS = ("live", "라이브", "cover", "커버", "reaction", "리액션", "shorts")
 
 YTDLP_OPTIONS = {
     "format": "bestaudio/best",
@@ -61,6 +67,7 @@ class Track:
     stream_url: str | None = None
     stream_url_obtained_at: float = 0.0
     stream_task: asyncio.Task[dict] | None = field(default=None, repr=False)
+    needs_music_search: bool = False
 
 
 @dataclass
@@ -418,12 +425,74 @@ class Music(commands.Cog):
             raise RuntimeError("검색 결과를 찾지 못했습니다.")
         return info
 
+    @staticmethod
+    def _search_music_candidates(query: str) -> list[dict]:
+        search_options = {**YTDLP_OPTIONS, "extract_flat": "discard_in_playlist"}
+        with yt_dlp.YoutubeDL(search_options) as ydl:
+            info = ydl.extract_info(f"ytsearch10:{query}", download=False)
+        return [entry for entry in info.get("entries", []) if entry]
+
+    @staticmethod
+    def _candidate_score(candidate: dict) -> int:
+        title = str(candidate.get("title") or "").lower()
+        channel = str(candidate.get("channel") or candidate.get("uploader") or "").lower()
+        text = f"{title} {channel}"
+        score = 0
+        official_audio = any(marker in text for marker in OFFICIAL_AUDIO_MARKERS)
+        official_channel = candidate.get("channel_is_verified") or any(
+            marker in channel for marker in OFFICIAL_CHANNEL_MARKERS
+        )
+        if "provided to youtube" in text or (official_audio and official_channel):
+            score += 100
+        if candidate.get("channel_is_verified"):
+            score += 30
+        if any(marker in title for marker in AUDIO_MARKERS):
+            score += 15
+        if any(marker in title for marker in NON_AUDIO_MARKERS):
+            score -= 80
+        return score
+
+    @classmethod
+    def _find_music_candidate(cls, query: str) -> dict:
+        attempts = (
+            (f"{query} official audio", True),
+            (f"{query} mp3 음원", False),
+            (query, False),
+        )
+        for search_query, official_only in attempts:
+            candidates = [
+                candidate
+                for candidate in cls._search_music_candidates(search_query)
+                if candidate.get("webpage_url") or candidate.get("url")
+            ]
+            if official_only:
+                candidates = [
+                    candidate
+                    for candidate in candidates
+                    if cls._candidate_score(candidate) >= 100
+                ]
+            if candidates:
+                return max(candidates, key=cls._candidate_score)
+        raise RuntimeError("재생할 유튜브 결과를 찾지 못했습니다.")
+
+    @classmethod
+    def _resolve_stream_info(cls, track: Track) -> dict:
+        if track.needs_music_search:
+            candidate = cls._find_music_candidate(track.webpage_url)
+            track.webpage_url = candidate.get("webpage_url") or candidate["url"]
+            track.needs_music_search = False
+        return cls._extract(track.webpage_url)
+
     async def _track_from_query(
         self, query: str, requester: str, channel: discord.abc.Messageable
     ) -> Track:
-        info = await asyncio.to_thread(self._extract, query)
-        url = info.get("webpage_url") or info.get("original_url") or query
-        stream_url = info.get("url")
+        direct_url = bool(YOUTUBE_URL_PATTERN.match(query.strip()))
+        info = await asyncio.to_thread(
+            self._extract if direct_url else self._find_music_candidate,
+            query,
+        )
+        url = info.get("webpage_url") or info.get("original_url") or info.get("url") or query
+        stream_url = info.get("url") if direct_url else None
         return Track(
             title=info.get("title") or "제목을 알 수 없는 음악",
             webpage_url=url,
@@ -448,6 +517,7 @@ class Music(commands.Cog):
                 thumbnail=None,
                 requester=requester,
                 channel=channel,
+                needs_music_search=True,
             )
             for entry in entries
         ]
@@ -466,7 +536,7 @@ class Music(commands.Cog):
 
         task = track.stream_task
         if task is None or task.done():
-            task = asyncio.create_task(asyncio.to_thread(self._extract, track.webpage_url))
+            task = asyncio.create_task(asyncio.to_thread(self._resolve_stream_info, track))
             track.stream_task = task
 
         try:
