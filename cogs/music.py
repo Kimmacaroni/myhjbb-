@@ -18,6 +18,7 @@ from discord import app_commands
 from discord.ext import commands
 import yt_dlp
 import db
+from melon_chart import MelonChartEntry, MelonChartError, fetch_melon_top100
 from voice_idle import cancel_idle, schedule_idle
 
 log = logging.getLogger(__name__)
@@ -435,6 +436,23 @@ class Music(commands.Cog):
         )
 
     @staticmethod
+    def _tracks_from_melon_chart(
+        entries: list[MelonChartEntry], requester: str, channel: discord.abc.Messageable
+    ) -> list[Track]:
+        return [
+            Track(
+                title=f"{entry.rank}위 · {entry.title} — {entry.artist}",
+                # YouTube 조회는 현재 곡과 다음 곡에만 지연 실행한다.
+                webpage_url=f"{entry.artist} {entry.title}",
+                duration=None,
+                thumbnail=None,
+                requester=requester,
+                channel=channel,
+            )
+            for entry in entries
+        ]
+
+    @staticmethod
     def _has_fresh_stream_url(track: Track) -> bool:
         return bool(
             track.stream_url
@@ -654,6 +672,47 @@ class Music(commands.Cog):
                 wait=True,
                 ephemeral=True,
             )
+        asyncio.create_task(self._delete_later(confirmation, 5))
+
+    @app_commands.command(name="멜론순위재생", description="현재 멜론 TOP100을 1위부터 대기열에 추가합니다.")
+    async def melon_chart_play(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        member_voice = getattr(interaction.user, "voice", None)
+        if not member_voice or not member_voice.channel:
+            await self._connect_for(interaction)
+            return
+
+        # 음성 연결과 차트 수집은 독립적이므로 동시에 처리한다.
+        voice_task = asyncio.create_task(self._connect_for(interaction))
+        chart_task = asyncio.create_task(asyncio.to_thread(fetch_melon_top100))
+        try:
+            voice, entries = await asyncio.gather(voice_task, chart_task)
+        except Exception as exc:
+            for task in (voice_task, chart_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(voice_task, chart_task, return_exceptions=True)
+            log.exception("멜론 TOP100 차트 수집 실패")
+            detail = "멜론 TOP100을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+            if isinstance(exc, MelonChartError):
+                detail = str(exc)
+            await interaction.followup.send(f"❌ {detail}", ephemeral=True)
+            return
+
+        if voice is None:
+            return
+
+        state = self._state(interaction.guild.id)
+        state.queue.extend(
+            self._tracks_from_melon_chart(entries, interaction.user.display_name, interaction.channel)
+        )
+        self._prefetch_next(state)
+        if state.task is None or state.task.done():
+            state.task = asyncio.create_task(self._player_loop(interaction.guild, state))
+            message = "🎵 현재 멜론 TOP100 100곡을 1위부터 재생합니다."
+        else:
+            message = "📥 현재 멜론 TOP100 100곡을 1위부터 대기열에 추가했습니다."
+        confirmation = await interaction.followup.send(message, wait=True, ephemeral=True)
         asyncio.create_task(self._delete_later(confirmation, 5))
 
     @app_commands.command(name="일시정지", description="현재 음악을 일시정지합니다.")
