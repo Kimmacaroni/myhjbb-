@@ -244,9 +244,7 @@ class Music(commands.Cog):
             if not track_task.done():
                 track_task.cancel()
             log.exception("음악 채널 메시지 검색 실패")
-            detail = "유튜브 검색에 실패했습니다. 잠시 후 다시 시도해 주세요."
-            if "Sign in to confirm you're not a bot" in str(exc):
-                detail = "유튜브 인증 쿠키를 갱신해야 합니다."
+            detail = self._safe_music_error(exc, "유튜브 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.")
             await self._temporary_channel_message(message.channel, f"{member.mention} ❌ {detail}")
             return
 
@@ -427,10 +425,24 @@ class Music(commands.Cog):
 
     @staticmethod
     def _search_music_candidates(query: str) -> list[dict]:
-        search_options = {**YTDLP_OPTIONS, "extract_flat": "discard_in_playlist"}
+        # 검색 결과의 영상까지 풀어서 추출하지 않는다. 실제 스트림은 선택된 곡만 준비한다.
+        search_options = {**YTDLP_OPTIONS, "extract_flat": True}
+        search_options.pop("noplaylist", None)
         with yt_dlp.YoutubeDL(search_options) as ydl:
             info = ydl.extract_info(f"ytsearch10:{query}", download=False)
         return [entry for entry in info.get("entries", []) if entry]
+
+    @staticmethod
+    def _is_youtube_bot_block(exc: Exception) -> bool:
+        # yt-dlp/YouTube가 직선 또는 곡선 따옴표를 섞어 보내므로 정규화한다.
+        message = str(exc).replace("’", "'").replace("‘", "'").lower()
+        return "sign in to confirm you're not a bot" in message
+
+    @classmethod
+    def _safe_music_error(cls, exc: Exception, fallback: str) -> str:
+        if cls._is_youtube_bot_block(exc):
+            return "유튜브가 현재 VPS 요청을 차단했습니다. 잠시 후 다시 시도해 주세요."
+        return fallback
 
     @staticmethod
     def _candidate_score(candidate: dict) -> int:
@@ -642,9 +654,10 @@ class Music(commands.Cog):
                     raise
                 except Exception as exc:
                     log.exception("음악 재생 준비 실패")
+                    detail = self._safe_music_error(exc, "오디오 스트림을 준비하지 못했습니다.")
                     await self._temporary_channel_message(
                         track.channel,
-                        f"❌ **{track.title}** 재생에 실패해 다음 곡으로 넘어갑니다: {exc}",
+                        f"❌ **{track.title}** 재생에 실패해 다음 곡으로 넘어갑니다: {detail}",
                     )
                 finally:
                     if state.progress_task:
@@ -716,12 +729,7 @@ class Music(commands.Cog):
                     task.cancel()
             await asyncio.gather(voice_task, track_task, return_exceptions=True)
             log.exception("음악 검색 실패")
-            message = f"❌ 음악을 찾지 못했습니다: {exc}"
-            if "Sign in to confirm you're not a bot" in str(exc):
-                message = (
-                    "❌ 유튜브가 VPS 요청을 차단했습니다. 관리자에게 유튜브 쿠키 파일 "
-                    "설정을 요청해 주세요. 자세한 방법은 서버 설정 안내를 확인하세요."
-                )
+            message = f"❌ {self._safe_music_error(exc, '음악을 찾지 못했습니다. 잠시 후 다시 시도해 주세요.')}"
             await interaction.followup.send(message, ephemeral=True)
             return
 
