@@ -33,6 +33,10 @@ OFFICIAL_AUDIO_MARKERS = ("official audio", "provided to youtube")
 OFFICIAL_CHANNEL_MARKERS = (" - topic", "vevo")
 AUDIO_MARKERS = ("audio", "mp3", "음원")
 NON_AUDIO_MARKERS = ("live", "라이브", "cover", "커버", "reaction", "리액션", "shorts")
+MUSIC_VIDEO_TITLE_PATTERN = re.compile(
+    r"(?:official\s+)?(?:music\s+)?video|(?:^|[\s\[\(])m/?v(?:$|[\s\]\)])|뮤직\s*비디오|뮤비",
+    re.IGNORECASE,
+)
 
 YTDLP_OPTIONS = {
     "format": "bestaudio/best",
@@ -474,6 +478,10 @@ class Music(commands.Cog):
             score -= 80
         return score
 
+    @staticmethod
+    def _is_music_video(candidate: dict) -> bool:
+        return bool(MUSIC_VIDEO_TITLE_PATTERN.search(str(candidate.get("title") or "")))
+
     @classmethod
     def _find_music_candidate(cls, query: str) -> dict:
         attempts = (
@@ -485,7 +493,8 @@ class Music(commands.Cog):
             candidates = [
                 candidate
                 for candidate in cls._search_music_candidates(search_query)
-                if candidate.get("webpage_url") or candidate.get("url")
+                if (candidate.get("webpage_url") or candidate.get("url"))
+                and not cls._is_music_video(candidate)
             ]
             if official_only:
                 candidates = [
@@ -513,6 +522,8 @@ class Music(commands.Cog):
             self._extract if direct_url else self._find_music_candidate,
             query,
         )
+        if direct_url and self._is_music_video(info):
+            raise RuntimeError("뮤직비디오는 재생하지 않습니다. 곡명으로 다시 검색해 주세요.")
         url = info.get("webpage_url") or info.get("original_url") or info.get("url") or query
         stream_url = info.get("url") if direct_url else None
         return Track(
