@@ -135,6 +135,15 @@ class MusicDashboardView(discord.ui.View):
     async def play_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(MusicSearchModal(self.cog))
 
+    @discord.ui.button(
+        label="멜론순위",
+        emoji="🏆",
+        style=discord.ButtonStyle.success,
+        custom_id="honorary_music:melon_chart",
+    )
+    async def melon_chart_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.melon_chart_play.callback(self.cog, interaction)
+
     @discord.ui.button(label="대기열", emoji="📋", style=discord.ButtonStyle.secondary, custom_id="honorary_music:queue")
     async def queue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.queue.callback(self.cog, interaction)
@@ -293,6 +302,7 @@ class Music(commands.Cog):
             name="🎵 버튼 사용법",
             value=(
                 "**재생** — 곡명 또는 유튜브 URL 입력\n"
+                "**멜론순위** — 현재 멜론 TOP100을 1위부터 재생\n"
                 "**채팅 검색** — 이 채널에 `아이유 좋은날`처럼 바로 입력\n"
                 "**대기열** — 현재 재생·다음 곡 확인\n"
                 "**일시정지 / 스킵 / 정지** — 재생 상태 제어"
