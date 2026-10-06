@@ -30,8 +30,9 @@ FFMPEG_OPTIONS = "-vn"
 STREAM_URL_CACHE_SECONDS = 15 * 60
 YOUTUBE_URL_PATTERN = re.compile(r"^https?://", re.IGNORECASE)
 OFFICIAL_AUDIO_MARKERS = ("official audio", "provided to youtube")
-OFFICIAL_CHANNEL_MARKERS = (" - topic", "vevo")
-AUDIO_MARKERS = ("audio", "mp3", "음원")
+OFFICIAL_CHANNEL_MARKERS = (" - topic",)
+AUDIO_MARKERS = ("audio", "mp3", "음원", "가사", "lyrics", "lyric")
+VIDEO_CHANNEL_MARKERS = ("vevo",)
 NON_AUDIO_MARKERS = ("live", "라이브", "cover", "커버", "reaction", "리액션", "shorts")
 MUSIC_VIDEO_TITLE_PATTERN = re.compile(
     r"(?:official\s+)?(?:music\s+)?video|(?:^|[\s\[\(])m/?v(?:$|[\s\]\)])|뮤직\s*비디오|뮤비",
@@ -469,38 +470,55 @@ class Music(commands.Cog):
             marker in channel for marker in OFFICIAL_CHANNEL_MARKERS
         )
         if "provided to youtube" in text or (official_audio and official_channel):
-            score += 100
+            score += 250
+        if Music._is_audio_only(candidate):
+            score += 200
         if candidate.get("channel_is_verified"):
             score += 30
         if any(marker in title for marker in AUDIO_MARKERS):
-            score += 15
+            score += 50
         if any(marker in title for marker in NON_AUDIO_MARKERS):
             score -= 80
         return score
 
     @staticmethod
     def _is_music_video(candidate: dict) -> bool:
-        return bool(MUSIC_VIDEO_TITLE_PATTERN.search(str(candidate.get("title") or "")))
+        title = str(candidate.get("title") or "")
+        channel = str(candidate.get("channel") or candidate.get("uploader") or "").lower()
+        return bool(MUSIC_VIDEO_TITLE_PATTERN.search(title)) or any(
+            marker in channel for marker in VIDEO_CHANNEL_MARKERS
+        )
+
+    @staticmethod
+    def _is_audio_only(candidate: dict) -> bool:
+        title = str(candidate.get("title") or "").lower()
+        channel = str(candidate.get("channel") or candidate.get("uploader") or "").lower()
+        text = f"{title} {channel}"
+        return (
+            any(marker in title for marker in AUDIO_MARKERS)
+            or "provided to youtube" in text
+            or any(marker in channel for marker in OFFICIAL_CHANNEL_MARKERS)
+        )
 
     @classmethod
     def _find_music_candidate(cls, query: str) -> dict:
         attempts = (
             (f"{query} official audio", True),
-            (f"{query} mp3 음원", False),
+            (f"{query} 음원 가사 mp3", True),
             (query, False),
         )
-        for search_query, official_only in attempts:
+        for search_query, audio_only in attempts:
             candidates = [
                 candidate
                 for candidate in cls._search_music_candidates(search_query)
                 if (candidate.get("webpage_url") or candidate.get("url"))
                 and not cls._is_music_video(candidate)
             ]
-            if official_only:
+            if audio_only:
                 candidates = [
                     candidate
                     for candidate in candidates
-                    if cls._candidate_score(candidate) >= 100
+                    if cls._is_audio_only(candidate)
                 ]
             if candidates:
                 return max(candidates, key=cls._candidate_score)
