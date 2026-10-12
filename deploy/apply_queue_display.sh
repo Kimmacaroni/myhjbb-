@@ -9,8 +9,8 @@ expected_sha=99ce5a9813a538c87484a747c4b6202ae409afa8158a7bd80f4f97bfa9c5603c
 [[ ! -e "$app_dir/music_queue.py" ]] || {
   echo '기존 music_queue.py를 덮어쓰지 않습니다.' >&2; exit 1;
 }
-[[ "$(sha256sum "$app_dir/music_matching.py" | cut -d ' ' -f 1)" ==
-   f9f4f588105c1acf76837f29978389e24c2e7ed10624afa992b740f023a4a8f7 ]] || {
+expected_matching_sha=f9f4f588105c1acf76837f29978389e24c2e7ed10624afa992b740f023a4a8f7
+[[ "$(sha256sum "$app_dir/music_matching.py" | cut -d ' ' -f 1)" == "$expected_matching_sha" ]] || {
   echo '운영 검색 일치 코드가 기준과 달라 중단했습니다.' >&2; exit 1;
 }
 "$app_dir/.venv/bin/python" - "$source_dir" <<'PY'
