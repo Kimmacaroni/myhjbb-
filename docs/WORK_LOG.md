@@ -1,5 +1,13 @@
 # 명예회장봇 작업 기록
 
+## 2026-10-12 KST — 승인된 통합 배포 시도
+
+- 사용자가 음악 수정과 공지 기능 배포를 요청했다.
+- 운영 bot.py/access_control.py/music.py의 SHA-256이 기준 버전과 일치하고, 공지 Cog/일치 검사 모듈이 아직 없음을 확인했다.
+- `deploy/apply_music_and_announcements.sh`: 운영 파일 기준 확인, 문법·의존성 검사, 대상 코드만 백업·반영, 서비스 재시작, 공지 Cog 로딩·명령 등록 확인, 실패 시 원본 복구. 영구 데이터는 변경하지 않는다.
+- 검증: `bash -n` 및 `--check` 사전 검사 통과.
+- 실제 실행: `sudo -n bash deploy/apply_music_and_announcements.sh`가 `sudo: a password is required`로 거절됐다. 사용자 배포 승인과 별개로 현재 계정의 root 인증이 부족하다. 운영 코드 반영·서비스 재시작은 수행되지 않았다.
+
 ## 2026-10-12 KST — 임베드·텍스트 공지 기능
 
 - 사용자 요청: 두 가지 공지 형식, 제목과 내용 분리, 제목 강조.
