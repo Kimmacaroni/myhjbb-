@@ -1,5 +1,12 @@
 # 명예회장봇 작업 기록
 
+## 2026-10-12 KST — 음악 수정·공지 기능 운영 배포 완료
+
+- 사용자가 root 콘솔에서 통합 배포 스크립트를 실행했다. 출력에서 사전 검사, 배포, 공지 Cog 로딩·명령 등록 확인 완료를 확인했다.
+- 백업: `/opt/honorary-bot/music-notice-backup-HXOJcfZv`.
+- 후속 직접 확인: `honorary-bot.service` active. 운영 bot.py, cogs/music.py, cogs/announcements.py, music_matching.py의 SHA-256이 검증한 작업 사본과 모두 일치한다.
+- 실제 Discord 음악 소리·공지 게시 동작은 아직 미검증. 시스템 전체 재부팅은 수행하지 않았다.
+
 ## 2026-10-12 KST — 승인된 통합 배포 시도
 
 - 사용자가 음악 수정과 공지 기능 배포를 요청했다.
