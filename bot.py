@@ -30,6 +30,7 @@ COGS = (
     "cogs.music",
     "cogs.tts",
     "cogs.updater",
+    "cogs.announcements",
     "cogs.help",
 )
 

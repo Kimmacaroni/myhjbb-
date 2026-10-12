@@ -7,6 +7,7 @@ from discord import app_commands
 
 BOT_OWNER_ID = 246819817896673281
 ADMIN_COMMAND_NAMES = {
+    "공지임베드", "공지텍스트",
     "경험치", "랭킹", "경험치지급", "경험치차감", "경험치설정",
     "칭호추가", "칭호삭제", "칭호목록", "칭호동기화",
 }
