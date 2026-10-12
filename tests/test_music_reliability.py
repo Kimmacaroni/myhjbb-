@@ -28,6 +28,27 @@ class QueryMatchingTests(unittest.TestCase):
     def test_korean_spacing(self):
         self.assertTrue(matches_query("아이유 좋은날", candidate("좋은 날", "아이유 - Topic")))
 
+    def test_cherryfilter_lyrics_annotation(self):
+        self.assertTrue(matches_query("체리필터 내게로와",
+                                     candidate("체리필터 내게로 와 (가사 첨부)", "All NORE")))
+
+    def test_bilingual_korean_and_english_title(self):
+        self.assertTrue(matches_query("체리필터 내게로와",
+                                     candidate("체리필터 - 내게로 와 | Cherryfilter - Come to me",
+                                               "cherryfilter")))
+
+    def test_bilingual_does_not_allow_another_korean_song(self):
+        self.assertFalse(matches_query("체리필터 내게로와",
+                                      candidate("체리필터 - 오리 날다 | Cherryfilter - Flying Duck",
+                                                "cherryfilter")))
+        self.assertFalse(matches_query("체리필터 내게로와",
+                                      candidate("체리필터 - 내게로 와 다시 | Cherryfilter - Come to me",
+                                                "cherryfilter")))
+
+    def test_unrecognized_annotations_are_not_removed(self):
+        self.assertFalse(matches_query("체리필터 내게로와",
+                                      candidate("체리필터 내게로 와 (다른곡)", "All NORE")))
+
     def test_missing_title_is_rejected(self):
         self.assertFalse(matches_query("IU", candidate("", "IU - Topic")))
 
