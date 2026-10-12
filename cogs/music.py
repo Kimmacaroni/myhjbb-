@@ -21,6 +21,7 @@ import yt_dlp
 import db
 from melon_chart import MelonChartEntry, MelonChartError, fetch_melon_top100
 from voice_idle import cancel_idle, schedule_idle
+from music_matching import MusicLookupError, matches_query
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max
 FFMPEG_OPTIONS = "-vn"
 # YouTube의 서명된 스트림 URL은 유효 시간이 있으므로, 다음 곡만 짧게 선준비한다.
 STREAM_URL_CACHE_SECONDS = 15 * 60
+LOOKUP_TIMEOUT_SECONDS = 45
 YOUTUBE_URL_PATTERN = re.compile(r"^https?://", re.IGNORECASE)
 OFFICIAL_AUDIO_MARKERS = ("official audio", "provided to youtube")
 OFFICIAL_CHANNEL_MARKERS = (" - topic",)
@@ -48,6 +50,9 @@ YTDLP_OPTIONS = {
     "source_address": "0.0.0.0",
     # YouTube의 최신 JavaScript 검증 스크립트를 Deno로 받아 실행합니다.
     "remote_components": ["ejs:npm"],
+    "socket_timeout": 10,
+    "retries": 1,
+    "extractor_retries": 1,
 }
 
 # VPS IP가 유튜브에서 자동 요청으로 차단될 때, 소유자가 제공한 쿠키 파일을
@@ -73,6 +78,7 @@ class Track:
     stream_url_obtained_at: float = 0.0
     stream_task: asyncio.Task[dict] | None = field(default=None, repr=False)
     needs_music_search: bool = False
+    requested_query: str | None = None
 
 
 @dataclass
@@ -233,10 +239,10 @@ class Music(commands.Cog):
 
         cancel_idle(self.bot, guild.id)
         voice = guild.voice_client
-        track_task = asyncio.create_task(
-            self._track_from_query(query, member.display_name, message.channel)
-        )
         try:
+            # 검색/스트림 준비에 실패하면 음성방에 들어갔다가 나가지 않는다.
+            track = await self._track_from_query(query, member.display_name, message.channel)
+            await self._stream_url(track)
             if voice and voice.is_connected():
                 if voice.channel != member_voice.channel:
                     state = self._state(guild.id)
@@ -245,18 +251,12 @@ class Music(commands.Cog):
                             message.channel,
                             f"{member.mention} 이미 {voice.channel.mention}에서 재생 중입니다.",
                         )
-                        track_task.cancel()
-                        await asyncio.gather(track_task, return_exceptions=True)
                         return
                     await voice.move_to(member_voice.channel)
                     await guild.change_voice_state(channel=member_voice.channel, self_deaf=True)
             else:
-                voice = await member_voice.channel.connect(self_deaf=True)
-
-            track = await track_task
+                voice = await member_voice.channel.connect(self_deaf=True, timeout=20)
         except Exception as exc:
-            if not track_task.done():
-                track_task.cancel()
             log.exception("음악 채널 메시지 검색 실패")
             detail = self._safe_music_error(exc, "유튜브 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.")
             await self._temporary_channel_message(message.channel, f"{member.mention} ❌ {detail}")
@@ -432,7 +432,7 @@ class Music(commands.Cog):
     def _extract(query: str) -> dict:
         with yt_dlp.YoutubeDL(YTDLP_OPTIONS) as ydl:
             info = ydl.extract_info(query, download=False)
-        if "entries" in info:
+        if info and "entries" in info:
             info = next((entry for entry in info["entries"] if entry), None)
         if not info:
             raise RuntimeError("검색 결과를 찾지 못했습니다.")
@@ -455,6 +455,14 @@ class Music(commands.Cog):
 
     @classmethod
     def _safe_music_error(cls, exc: Exception, fallback: str) -> str:
+        if isinstance(exc, MusicLookupError):
+            return str(exc)
+        if isinstance(exc, TimeoutError):
+            return "음악 검색 또는 음성 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요."
+        if isinstance(exc, discord.ConnectionClosed):
+            if exc.code == 4017:
+                return "봇의 음성 암호화 지원을 업데이트해야 합니다. 운영자에게 알려 주세요."
+            return "디스코드 음성 연결에 실패했습니다. 잠시 후 다시 시도해 주세요."
         if cls._is_youtube_bot_block(exc):
             return "유튜브가 현재 VPS 요청을 차단했습니다. 잠시 후 다시 시도해 주세요."
         return fallback
@@ -513,6 +521,9 @@ class Music(commands.Cog):
                 for candidate in cls._search_music_candidates(search_query)
                 if (candidate.get("webpage_url") or candidate.get("url"))
                 and not cls._is_music_video(candidate)
+                and matches_query(query, candidate)
+                and not re.search(r"\b(?:live|cover|reaction|shorts)\b|라이브|커버|리액션",
+                                  str(candidate.get("title") or ""), re.IGNORECASE)
             ]
             if audio_only:
                 candidates = [
@@ -522,7 +533,7 @@ class Music(commands.Cog):
                 ]
             if candidates:
                 return max(candidates, key=cls._candidate_score)
-        raise RuntimeError("재생할 유튜브 결과를 찾지 못했습니다.")
+        raise MusicLookupError("검색어와 일치하는 음원을 찾지 못했습니다. 가수명과 곡명을 정확히 입력해 주세요. 다른 곡은 재생하지 않습니다.")
 
     @classmethod
     def _resolve_stream_info(cls, track: Track) -> dict:
@@ -530,18 +541,21 @@ class Music(commands.Cog):
             candidate = cls._find_music_candidate(track.webpage_url)
             track.webpage_url = candidate.get("webpage_url") or candidate["url"]
             track.needs_music_search = False
-        return cls._extract(track.webpage_url)
+        info = cls._extract(track.webpage_url)
+        if track.requested_query and not matches_query(track.requested_query, info):
+            raise MusicLookupError("선택된 음원이 검색어와 일치하지 않아 재생을 취소했습니다.")
+        return info
 
     async def _track_from_query(
         self, query: str, requester: str, channel: discord.abc.Messageable
     ) -> Track:
         direct_url = bool(YOUTUBE_URL_PATTERN.match(query.strip()))
-        info = await asyncio.to_thread(
-            self._extract if direct_url else self._find_music_candidate,
-            query,
+        info = await asyncio.wait_for(
+            asyncio.to_thread(self._extract if direct_url else self._find_music_candidate, query),
+            timeout=LOOKUP_TIMEOUT_SECONDS,
         )
         if direct_url and self._is_music_video(info):
-            raise RuntimeError("뮤직비디오는 재생하지 않습니다. 곡명으로 다시 검색해 주세요.")
+            raise MusicLookupError("뮤직비디오는 재생하지 않습니다. 곡명으로 다시 검색해 주세요.")
         url = info.get("webpage_url") or info.get("original_url") or info.get("url") or query
         stream_url = info.get("url") if direct_url else None
         return Track(
@@ -553,6 +567,7 @@ class Music(commands.Cog):
             channel=channel,
             stream_url=stream_url,
             stream_url_obtained_at=time.monotonic() if stream_url else 0.0,
+            requested_query=None if direct_url else query,
         )
 
     @staticmethod
@@ -569,6 +584,7 @@ class Music(commands.Cog):
                 requester=requester,
                 channel=channel,
                 needs_music_search=True,
+                requested_query=f"{entry.artist} {entry.title}",
             )
             for entry in entries
         ]
@@ -591,7 +607,7 @@ class Music(commands.Cog):
             track.stream_task = task
 
         try:
-            info = await asyncio.shield(task)
+            info = await asyncio.wait_for(asyncio.shield(task), timeout=LOOKUP_TIMEOUT_SECONDS)
         except Exception:
             if track.stream_task is task:
                 track.stream_task = None
@@ -688,7 +704,7 @@ class Music(commands.Cog):
                             )
                     error = await finished
                     if error:
-                        log.warning("음악 재생 오류: %s", error)
+                        raise error
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -744,7 +760,7 @@ class Music(commands.Cog):
                 await guild.change_voice_state(channel=voice_state.channel, self_deaf=True)
             return current
 
-        return await voice_state.channel.connect(self_deaf=True)
+        return await voice_state.channel.connect(self_deaf=True, timeout=20)
 
     @app_commands.command(name="재생", description="유튜브 URL 또는 검색어를 음성 채널에서 재생합니다.")
     @app_commands.describe(검색어="유튜브 URL 또는 가수명과 노래 제목")
@@ -755,18 +771,14 @@ class Music(commands.Cog):
             await self._connect_for(interaction)
             return
 
-        # 음성 채널 연결과 YouTube 조회는 서로 의존하지 않으므로 동시에 시작한다.
-        voice_task = asyncio.create_task(self._connect_for(interaction))
-        track_task = asyncio.create_task(
-            self._track_from_query(검색어, interaction.user.display_name, interaction.channel)
-        )
         try:
-            voice, track = await asyncio.gather(voice_task, track_task)
+            # 실제 재생 가능한 음원을 확보한 뒤 음성방에 입장한다.
+            track = await self._track_from_query(
+                검색어, interaction.user.display_name, interaction.channel
+            )
+            await self._stream_url(track)
+            voice = await self._connect_for(interaction)
         except Exception as exc:
-            for task in (voice_task, track_task):
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(voice_task, track_task, return_exceptions=True)
             log.exception("음악 검색 실패")
             message = f"❌ {self._safe_music_error(exc, '음악을 찾지 못했습니다. 잠시 후 다시 시도해 주세요.')}"
             await interaction.followup.send(message, ephemeral=True)
