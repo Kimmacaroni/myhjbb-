@@ -22,6 +22,7 @@ import db
 from melon_chart import MelonChartEntry, MelonChartError, fetch_melon_top100
 from voice_idle import cancel_idle, schedule_idle
 from music_matching import MusicLookupError, matches_query
+from music_queue import QueueView, queue_embed
 
 log = logging.getLogger(__name__)
 
@@ -943,19 +944,12 @@ class Music(commands.Cog):
     async def queue(self, interaction: discord.Interaction):
         cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
-        lines: list[str] = []
-        if state.current:
-            lines.append(f"▶️ 현재 재생: **{state.current.title}**")
-        if state.queue:
-            lines.extend(
-                f"{index}. **{track.title}** ({self._duration_text(track.duration)})"
-                for index, track in enumerate(list(state.queue)[:10], start=1)
-            )
-            if len(state.queue) > 10:
-                lines.append(f"… 외 {len(state.queue) - 10}곡")
-        if not lines:
-            lines.append("대기열이 비어 있습니다.")
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        waiting = list(state.queue)
+        await interaction.response.send_message(
+            embed=queue_embed(state.current, waiting),
+            view=QueueView(state.current, waiting) if len(waiting) > 10 else None,
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+        )
         if interaction.guild.voice_client:
             schedule_idle(self.bot, interaction.guild)
 
