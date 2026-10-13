@@ -21,7 +21,22 @@ def matches_query(query: str, candidate: dict) -> bool:
     No fuzzy guesses or translated-name substitutions are accepted.
     """
     requested = _tokens(query)
-    title = _tokens(str(candidate.get("title") or ""))
+    raw_title = str(candidate.get("title") or "")
+    # Metadata labels are not song-title words. Strip only known full labels.
+    raw_title = re.sub(
+        r"[\[(](?:가사\s*(?:첨부|포함|영상)?|lyrics?|official\s+audio|audio|음원|mp3)[\])]",
+        " ", raw_title, flags=re.IGNORECASE,
+    )
+    # A Korean title followed by its English rendering is common on official
+    # uploads. Keep the Korean side only when the query itself is all Hangul;
+    # never discard extra words within the same language/title.
+    if requested and all(re.fullmatch(r"[가-힣]+", t) for t in requested):
+        sections = re.split(r"\s*[|｜]\s*", raw_title)
+        if len(sections) > 1:
+            korean_sections = [s for s in sections if re.search(r"[가-힣]", s)]
+            if len(korean_sections) == 1:
+                raw_title = korean_sections[0]
+    title = _tokens(raw_title)
     identity = title + _tokens(" ".join(str(candidate.get(k) or "") for k in
                                        ("artist", "channel", "uploader")))
     boilerplate = {"official", "audio", "video", "lyrics", "lyric", "mp3", "topic",
