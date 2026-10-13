@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     menu_channel_id    INTEGER,
     traffic_channel_id INTEGER,
     music_channel_id   INTEGER,
-    music_message_id   INTEGER
+    music_message_id   INTEGER,
+    level_up_channel_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS traffic_seen_incidents (
@@ -79,6 +80,8 @@ def init(path: str) -> None:
             _conn.execute("ALTER TABLE guild_settings ADD COLUMN music_channel_id INTEGER")
         if "music_message_id" not in columns:
             _conn.execute("ALTER TABLE guild_settings ADD COLUMN music_message_id INTEGER")
+        if "level_up_channel_id" not in columns:
+            _conn.execute("ALTER TABLE guild_settings ADD COLUMN level_up_channel_id INTEGER")
         _conn.commit()
 
 
@@ -223,6 +226,22 @@ def find_title_by_name(guild_id: int, name: str) -> sqlite3.Row | None:
 
 
 # ── 서버별 설정 ───────────────────────────────────────
+
+def set_level_up_channel(guild_id: int, channel_id: int | None) -> None:
+    """None이면 서버별 지정만 해제하고 기존 알림 경로로 돌아갑니다."""
+    with _tx() as conn:
+        conn.execute(
+            """INSERT INTO guild_settings (guild_id, level_up_channel_id) VALUES (?, ?)
+               ON CONFLICT (guild_id) DO UPDATE SET level_up_channel_id = excluded.level_up_channel_id""",
+            (guild_id, channel_id),
+        )
+
+
+def get_level_up_channel(guild_id: int) -> int | None:
+    with _tx() as conn:
+        row = conn.execute("SELECT level_up_channel_id FROM guild_settings WHERE guild_id = ?",
+                           (guild_id,)).fetchone()
+    return row["level_up_channel_id"] if row else None
 
 def set_menu_channel(guild_id: int, channel_id: int | None) -> None:
     """식단을 보낼 채널을 지정합니다. None이면 자동 전송을 끕니다."""
