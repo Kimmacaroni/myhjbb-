@@ -1,5 +1,12 @@
 # 명예회장봇 작업 기록
 
+## 2026-10-13 KST — 전용 계정 설정 확인 및 대기열·검색 수정 직접 배포
+
+- root 설정 이후 codex에서 비밀번호 없이 컨트롤러 status/logs/deploy 실행 성공. 봇은 `honorary-bot` 계정으로 실행되며 로그인 및 서버 4곳의 명령 35개 동기화 확인. TTS 기본 모델 준비 확인.
+- 허용된 Python 파일 `cogs/music.py`, `music_matching.py`, `music_queue.py`를 직접 패키징·배포했다. 대기열 페이지·빈 상태 표시 및 가사 첨부/한영 병기 제목 검색 수정 반영.
+- 백업: `/var/lib/honorary-bot-backups/release-b1g86vax`.
+- 확인: 로그인 완료, 서비스 active/running, 운영 파일 3개의 SHA-256이 수정본과 모두 일치. 실제 Discord 소리·대기열 클릭은 아직 미검증.
+
 ## 2026-10-13 KST — 봇 전용 배포 권한 설정 준비
 
 - 사용자 요청에 따라 권장한 전용 계정 방식을 준비했다. root 콘솔에서 `deploy/grant_bot_deployment.sh`를 처음 한 번 실행한다.
