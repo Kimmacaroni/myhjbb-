@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import re
+import shlex
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ import db
 from melon_chart import MelonChartEntry, MelonChartError, fetch_melon_top100
 from voice_idle import cancel_idle, schedule_idle
 from music_matching import MusicLookupError, matches_query
+from music_queue import QueueView, queue_embed
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +81,35 @@ class Track:
     stream_task: asyncio.Task[dict] | None = field(default=None, repr=False)
     needs_music_search: bool = False
     requested_query: str | None = None
+    http_headers: dict[str, str] = field(default_factory=dict, repr=False)
+    stream_retry_count: int = 0
+
+
+class MusicStreamError(MusicLookupError):
+    """FFmpeg could not read the selected stream."""
+
+
+class PlaybackVolumeTransformer(discord.PCMVolumeTransformer):
+    """Forward an underlying FFmpeg failure through the volume wrapper."""
+
+    def read(self) -> bytes:
+        data = super().read()
+        if not data and getattr(self.original, "_current_error", None):
+            raise MusicStreamError("음원 서버 연결에 실패해 재생이 중단됐습니다. 잠시 후 다시 시도하거나 다른 링크를 사용해 주세요.")
+        return data
+
+
+def ffmpeg_before_options(track: Track) -> str:
+    options = FFMPEG_BEFORE_OPTIONS
+    # Preserve the extraction client's HTTP context when FFmpeg opens its URL.
+    headers = []
+    for name, value in track.http_headers.items():
+        if (re.fullmatch(r"[A-Za-z0-9-]+", name) and isinstance(value, str)
+                and "\r" not in value and "\n" not in value):
+            headers.append(f"{name}: {value}\r\n")
+    if headers:
+        options += " -headers " + shlex.quote("".join(headers))
+    return f"-ss {track.start_at} {options}" if track.start_at else options
 
 
 @dataclass
@@ -94,6 +125,13 @@ class PlayerState:
 
 
 class MusicSearchModal(discord.ui.Modal, title="명예회장봇 음악 재생"):
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        text = db.report_error(error, 'music.search', interaction.guild_id)
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+
     query = discord.ui.TextInput(
         label="유튜브 URL 또는 가수 · 노래 제목",
         placeholder="예: 아이유 좋은날 또는 유튜브 URL",
@@ -109,6 +147,13 @@ class MusicSearchModal(discord.ui.Modal, title="명예회장봇 음악 재생"):
 
 
 class MusicSeekModal(discord.ui.Modal, title="재생 위치 이동"):
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        text = db.report_error(error, 'music.seek', interaction.guild_id)
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+
     seconds = discord.ui.TextInput(label="이동할 시점(초)", placeholder="예: 90 = 1분 30초", max_length=6)
 
     def __init__(self, cog: "Music"):
@@ -133,7 +178,7 @@ class MusicDashboardView(discord.ui.View):
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
         log.exception("음악 대시보드 버튼 처리 실패: %s", getattr(item, "custom_id", None), exc_info=error)
-        message = "❌ 버튼 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        message = db.report_error(error, 'music.button', interaction.guild_id)
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(message, ephemeral=True)
@@ -258,8 +303,8 @@ class Music(commands.Cog):
                 voice = await member_voice.channel.connect(self_deaf=True, timeout=20)
         except Exception as exc:
             log.exception("음악 채널 메시지 검색 실패")
-            detail = self._safe_music_error(exc, "유튜브 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.")
-            await self._temporary_channel_message(message.channel, f"{member.mention} ❌ {detail}")
+            detail = db.report_error(exc, 'music.search', guild.id)
+            await self._temporary_channel_message(message.channel, f"{member.mention} {detail}", seconds=120)
             return
 
         state = self._state(guild.id)
@@ -465,6 +510,8 @@ class Music(commands.Cog):
             return "디스코드 음성 연결에 실패했습니다. 잠시 후 다시 시도해 주세요."
         if cls._is_youtube_bot_block(exc):
             return "유튜브가 현재 VPS 요청을 차단했습니다. 잠시 후 다시 시도해 주세요."
+        if "video unavailable" in str(exc).lower():
+            return "이 유튜브 영상은 현재 재생할 수 없습니다. 공개 상태·지역 제한을 확인하거나 다른 링크를 사용해 주세요."
         return fallback
 
     @staticmethod
@@ -568,6 +615,7 @@ class Music(commands.Cog):
             stream_url=stream_url,
             stream_url_obtained_at=time.monotonic() if stream_url else 0.0,
             requested_query=None if direct_url else query,
+            http_headers=info.get("http_headers") or {},
         )
 
     @staticmethod
@@ -619,6 +667,7 @@ class Music(commands.Cog):
         if not stream_url:
             raise RuntimeError("오디오 스트림 주소를 찾지 못했습니다.")
         track.stream_url = stream_url
+        track.http_headers = info.get("http_headers") or {}
         track.stream_url_obtained_at = time.monotonic()
         return stream_url
 
@@ -663,13 +712,10 @@ class Music(commands.Cog):
                     stream_url = await self._stream_url(track)
                     audio = discord.FFmpegPCMAudio(
                         stream_url,
-                        before_options=(
-                            f"-ss {track.start_at} {FFMPEG_BEFORE_OPTIONS}"
-                            if track.start_at else FFMPEG_BEFORE_OPTIONS
-                        ),
+                        before_options=ffmpeg_before_options(track),
                         options=FFMPEG_OPTIONS,
                     )
-                    source = discord.PCMVolumeTransformer(audio, volume=state.volume)
+                    source = PlaybackVolumeTransformer(audio, volume=state.volume)
                     state.current_source = source
                     finished = asyncio.get_running_loop().create_future()
 
@@ -708,11 +754,23 @@ class Music(commands.Cog):
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    if (isinstance(exc, MusicStreamError) and track.stream_retry_count == 0
+                            and voice and voice.is_connected()):
+                        # Retry the same selected video once with a fresh URL.
+                        # Never search for or substitute another song.
+                        track.stream_retry_count += 1
+                        elapsed = max(0, int(asyncio.get_running_loop().time() - state.started_at))
+                        track.start_at += elapsed
+                        track.stream_url = None
+                        track.stream_url_obtained_at = 0.0
+                        state.queue.appendleft(track)
+                        log.warning("음원 연결 실패: 같은 곡의 스트림 주소를 한 번 갱신합니다.")
+                        continue
                     log.exception("음악 재생 준비 실패")
-                    detail = self._safe_music_error(exc, "오디오 스트림을 준비하지 못했습니다.")
+                    detail = db.report_error(exc, 'music.stream', guild.id)
                     await self._temporary_channel_message(
                         track.channel,
-                        f"❌ **{track.title}** 재생에 실패해 다음 곡으로 넘어갑니다: {detail}",
+                        f"**{track.title}** 재생 실패 · 다음 곡으로 넘어갑니다.\n{detail}", seconds=120,
                     )
                 finally:
                     if state.progress_task:
@@ -780,7 +838,7 @@ class Music(commands.Cog):
             voice = await self._connect_for(interaction)
         except Exception as exc:
             log.exception("음악 검색 실패")
-            message = f"❌ {self._safe_music_error(exc, '음악을 찾지 못했습니다. 잠시 후 다시 시도해 주세요.')}"
+            message = db.report_error(exc, 'music.search', getattr(interaction, 'guild_id', None))
             await interaction.followup.send(message, ephemeral=True)
             return
 
@@ -822,10 +880,8 @@ class Music(commands.Cog):
                     task.cancel()
             await asyncio.gather(voice_task, chart_task, return_exceptions=True)
             log.exception("멜론 TOP100 차트 수집 실패")
-            detail = "멜론 TOP100을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
-            if isinstance(exc, MelonChartError):
-                detail = str(exc)
-            await interaction.followup.send(f"❌ {detail}", ephemeral=True)
+            detail = db.report_error(exc, 'music.chart', interaction.guild.id)
+            await interaction.followup.send(detail, ephemeral=True)
             return
 
         if voice is None:
@@ -943,19 +999,15 @@ class Music(commands.Cog):
     async def queue(self, interaction: discord.Interaction):
         cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
-        lines: list[str] = []
-        if state.current:
-            lines.append(f"▶️ 현재 재생: **{state.current.title}**")
-        if state.queue:
-            lines.extend(
-                f"{index}. **{track.title}** ({self._duration_text(track.duration)})"
-                for index, track in enumerate(list(state.queue)[:10], start=1)
-            )
-            if len(state.queue) > 10:
-                lines.append(f"… 외 {len(state.queue) - 10}곡")
-        if not lines:
-            lines.append("대기열이 비어 있습니다.")
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        waiting = list(state.queue)
+        options = {}
+        if len(waiting) > 10:
+            options["view"] = QueueView(state.current, waiting)
+        await interaction.response.send_message(
+            embed=queue_embed(state.current, waiting),
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+            **options,
+        )
         if interaction.guild.voice_client:
             schedule_idle(self.bot, interaction.guild)
 
