@@ -63,7 +63,7 @@ class AnnouncementModal(discord.ui.Modal):
         try:
             payload = announcement_payload(self.heading.value, self.body.value, self.embedded)
         except ValueError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
+            await interaction.response.send_message(db.report_error(exc, 'announcement', interaction.guild.id), ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         try:

@@ -354,3 +354,5 @@ food_bot.py         GitHub Actions 전용 단발 실행 스크립트
 Hermes Agent 또는 다른 개발 환경에서 작업을 이어갈 때는
 [`docs/HERMES_AGENT_HANDOFF_KO.md`](docs/HERMES_AGENT_HANDOFF_KO.md)를 먼저 읽으세요.
 현재 기능, VPS 운영 방식, 주요 커밋, 보안 수칙, 알려진 설정 문제와 다음 작업 순서가 정리되어 있습니다.
+
+오류 종류 44종의 설명과 조치: [오류 코드 안내](docs/ERROR_CODES.md).
