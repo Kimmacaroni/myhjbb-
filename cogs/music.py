@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import re
+import shlex
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -80,6 +81,30 @@ class Track:
     stream_task: asyncio.Task[dict] | None = field(default=None, repr=False)
     needs_music_search: bool = False
     requested_query: str | None = None
+    http_headers: dict[str, str] = field(default_factory=dict, repr=False)
+
+
+class PlaybackVolumeTransformer(discord.PCMVolumeTransformer):
+    """Forward an underlying FFmpeg failure through the volume wrapper."""
+
+    def read(self) -> bytes:
+        data = super().read()
+        if not data and getattr(self.original, "_current_error", None):
+            raise MusicLookupError("음원 서버 연결에 실패해 재생이 중단됐습니다. 잠시 후 다시 시도하거나 다른 링크를 사용해 주세요.")
+        return data
+
+
+def ffmpeg_before_options(track: Track) -> str:
+    options = FFMPEG_BEFORE_OPTIONS
+    # Preserve the extraction client's HTTP context when FFmpeg opens its URL.
+    headers = []
+    for name, value in track.http_headers.items():
+        if (re.fullmatch(r"[A-Za-z0-9-]+", name) and isinstance(value, str)
+                and "\r" not in value and "\n" not in value):
+            headers.append(f"{name}: {value}\r\n")
+    if headers:
+        options += " -headers " + shlex.quote("".join(headers))
+    return f"-ss {track.start_at} {options}" if track.start_at else options
 
 
 @dataclass
@@ -466,6 +491,8 @@ class Music(commands.Cog):
             return "디스코드 음성 연결에 실패했습니다. 잠시 후 다시 시도해 주세요."
         if cls._is_youtube_bot_block(exc):
             return "유튜브가 현재 VPS 요청을 차단했습니다. 잠시 후 다시 시도해 주세요."
+        if "video unavailable" in str(exc).lower():
+            return "이 유튜브 영상은 현재 재생할 수 없습니다. 공개 상태·지역 제한을 확인하거나 다른 링크를 사용해 주세요."
         return fallback
 
     @staticmethod
@@ -569,6 +596,7 @@ class Music(commands.Cog):
             stream_url=stream_url,
             stream_url_obtained_at=time.monotonic() if stream_url else 0.0,
             requested_query=None if direct_url else query,
+            http_headers=info.get("http_headers") or {},
         )
 
     @staticmethod
@@ -620,6 +648,7 @@ class Music(commands.Cog):
         if not stream_url:
             raise RuntimeError("오디오 스트림 주소를 찾지 못했습니다.")
         track.stream_url = stream_url
+        track.http_headers = info.get("http_headers") or {}
         track.stream_url_obtained_at = time.monotonic()
         return stream_url
 
@@ -664,13 +693,10 @@ class Music(commands.Cog):
                     stream_url = await self._stream_url(track)
                     audio = discord.FFmpegPCMAudio(
                         stream_url,
-                        before_options=(
-                            f"-ss {track.start_at} {FFMPEG_BEFORE_OPTIONS}"
-                            if track.start_at else FFMPEG_BEFORE_OPTIONS
-                        ),
+                        before_options=ffmpeg_before_options(track),
                         options=FFMPEG_OPTIONS,
                     )
-                    source = discord.PCMVolumeTransformer(audio, volume=state.volume)
+                    source = PlaybackVolumeTransformer(audio, volume=state.volume)
                     state.current_source = source
                     finished = asyncio.get_running_loop().create_future()
 
