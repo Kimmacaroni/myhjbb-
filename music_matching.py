@@ -24,7 +24,7 @@ def matches_query(query: str, candidate: dict) -> bool:
     raw_title = str(candidate.get("title") or "")
     # Metadata labels are not song-title words. Strip only known full labels.
     raw_title = re.sub(
-        r"[\[(](?:가사\s*(?:첨부|포함|영상)?|lyrics?|official\s+audio|audio|음원|mp3)[\])]",
+        r"[\[(](?:(?:가사\s*(?:첨부|포함|영상)?|(?:color\s+coded\s+)?lyrics?|official\s+audio|audio|음원|mp3)\s*(?:[/|]\s*)?)+[\])]",
         " ", raw_title, flags=re.IGNORECASE,
     )
     # A Korean title followed by its English rendering is common on official
@@ -37,14 +37,20 @@ def matches_query(query: str, candidate: dict) -> bool:
             if len(korean_sections) == 1:
                 raw_title = korean_sections[0]
     title = _tokens(raw_title)
+    # Common upload format: Artist - Song. Artist suffixes/aliases are not
+    # extra song-title words. All requested words must still match the full
+    # metadata, and the song side must match the requested title exactly.
+    sections = re.split(r"\s+[-–—]\s+", raw_title, maxsplit=1)
+    explicit_artist = _tokens(sections[0]) if len(sections) == 2 else []
+    song_title = _tokens(sections[1]) if explicit_artist else title
     identity = title + _tokens(" ".join(str(candidate.get(k) or "") for k in
                                        ("artist", "channel", "uploader")))
     boilerplate = {"official", "audio", "video", "lyrics", "lyric", "mp3", "topic",
                    "음원", "가사", "뮤직비디오", "뮤비"}
-    title_identity = [t for t in title if t not in boilerplate]
+    title_identity = [t for t in song_title if t not in boilerplate]
     identity = [t for t in identity if t not in boilerplate]
-    creator = _tokens(" ".join(str(candidate.get(k) or "") for k in
-                               ("artist", "channel", "uploader")))
+    creator = explicit_artist + _tokens(" ".join(str(candidate.get(k) or "") for k in
+                                                 ("artist", "channel", "uploader")))
     creator = [t for t in creator if t not in boilerplate]
 
     def contains(token: str, fields: list[str]) -> bool:
@@ -54,6 +60,8 @@ def matches_query(query: str, candidate: dict) -> bool:
 
     return bool(requested and title_identity
                 and all(contains(t, identity) for t in requested)
+                and (not explicit_artist or all(
+                    contains(t, title_identity) or contains(t, explicit_artist) for t in requested))
                 and any(contains(t, title_identity) for t in requested)
                 and all(contains(t, requested) or contains(t, creator)
                         for t in title_identity))

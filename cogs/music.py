@@ -945,10 +945,13 @@ class Music(commands.Cog):
         cancel_idle(self.bot, interaction.guild.id)
         state = self._state(interaction.guild.id)
         waiting = list(state.queue)
+        options = {}
+        if len(waiting) > 10:
+            options["view"] = QueueView(state.current, waiting)
         await interaction.response.send_message(
             embed=queue_embed(state.current, waiting),
-            view=QueueView(state.current, waiting) if len(waiting) > 10 else None,
             ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+            **options,
         )
         if interaction.guild.voice_client:
             schedule_idle(self.bot, interaction.guild)

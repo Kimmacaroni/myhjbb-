@@ -49,6 +49,7 @@ class QueueInteractionTests(unittest.IsolatedAsyncioTestCase):
         embed = interaction.response.send_message.call_args.kwargs["embed"]
         self.assertIn("다음곡", embed.description)
         self.assertTrue(interaction.response.send_message.call_args.kwargs["ephemeral"])
+        self.assertNotIn("view", interaction.response.send_message.call_args.kwargs)
 
     async def test_next_page_moves_to_remaining_tracks(self):
         view = QueueView(None, [track(f"노래{i}") for i in range(1, 12)])
