@@ -30,7 +30,8 @@ class StreamRetryTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(music, '_temporary_channel_message', AsyncMock()) as notice, \
                 patch('cogs.music.discord.FFmpegPCMAudio'), \
                 patch('cogs.music.PlaybackVolumeTransformer'), \
-                patch('cogs.music.schedule_idle'):
+                patch('cogs.music.schedule_idle'), \
+                patch('cogs.music.db.report_error', return_value='error'):
             await music._player_loop(guild, state)
             notices = notice.await_count
         return track, calls, notices

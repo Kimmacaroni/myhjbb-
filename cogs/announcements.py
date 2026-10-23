@@ -1,6 +1,7 @@
 """관리자가 제목과 본문을 따로 작성하는 공지."""
 
 import discord
+import db
 from discord import app_commands
 from discord.ext import commands
 
@@ -30,6 +31,13 @@ def announcement_payload(title: str, body: str, embedded: bool) -> dict:
 
 
 class AnnouncementModal(discord.ui.Modal):
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        text = db.report_error(error, 'announcement', interaction.guild_id)
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+
     def __init__(self, channel: discord.TextChannel, embedded: bool):
         super().__init__(title="임베드 공지 작성" if embedded else "텍스트 공지 작성")
         self.channel = channel
@@ -60,12 +68,8 @@ class AnnouncementModal(discord.ui.Modal):
         await interaction.response.defer(ephemeral=True)
         try:
             message = await self.channel.send(**payload)
-        except discord.Forbidden:
-            await interaction.followup.send("봇의 메시지 보내기·링크 첨부 권한을 확인해 주세요.",
-                                            ephemeral=True)
-        except discord.HTTPException:
-            await interaction.followup.send("공지 전송에 실패했습니다. 채널 상태를 확인한 뒤 다시 시도해 주세요.",
-                                            ephemeral=True)
+        except discord.HTTPException as exc:
+            await interaction.followup.send(db.report_error(exc, 'announcement', interaction.guild.id), ephemeral=True)
         else:
             await interaction.followup.send(f"✅ 공지를 게시했습니다. {message.jump_url}",
                                             ephemeral=True)
@@ -109,10 +113,7 @@ class Announcements(commands.Cog):
 
     async def cog_app_command_error(self, interaction: discord.Interaction,
                                     error: app_commands.AppCommandError):
-        if isinstance(error, app_commands.CheckFailure):
-            text = "공지 작성은 관리자만 사용할 수 있습니다."
-        else:
-            text = "공지 작성 화면을 열지 못했습니다. 잠시 후 다시 시도해 주세요."
+        text = db.report_error(error, 'announcement', interaction.guild_id)
         if interaction.response.is_done():
             await interaction.followup.send(text, ephemeral=True)
         else:

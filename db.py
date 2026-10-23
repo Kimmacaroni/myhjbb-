@@ -8,8 +8,15 @@ sqlite3는 동기 API지만 이 봇의 쿼리는 전부 인덱스 기반 단건 
 비동기 드라이버 없이 락으로만 직렬화합니다.
 """
 import datetime
+import json
+import logging
+import os
+from pathlib import Path
+import re
 import sqlite3
 import threading
+import traceback
+import uuid
 from contextlib import contextmanager
 
 import levels
@@ -17,8 +24,130 @@ import levels
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 
+# Stable public codes. Diagnostic records never contain exception messages,
+# command input, tokens, cookies, signed URLs, user names, or local variables.
+ERROR_CATALOG = {
+    'HB-M101': ('곡 검색 불일치', '검색어와 일치하는 음원을 찾지 못했습니다.', '가수명과 곡명을 확인하거나 해당 곡의 유튜브 링크를 입력해 주세요.'),
+    'HB-M102': ('재생 불가 영상', '유튜브가 이 영상의 재생을 허용하지 않았습니다.', '공개 상태·지역 제한을 확인하거나 다른 링크를 사용해 주세요.'),
+    'HB-M103': ('유튜브 접근 차단', '유튜브 또는 음원 서버가 요청을 차단했습니다.', '잠시 후 다시 시도하고, 반복되면 조회코드를 운영자에게 보내 주세요.'),
+    'HB-M104': ('음원 연결 실패', '음원 스트림 연결 또는 재생에 실패했습니다.', '다시 시도하거나 같은 곡의 다른 링크를 사용해 주세요.'),
+    'HB-M105': ('음성 연결 실패', '디스코드 음성 채널에 연결하지 못했습니다.', '봇의 연결·말하기 권한과 음성 채널 상태를 확인해 주세요.'),
+    'HB-M106': ('뮤직비디오 제외', '뮤직비디오로 분류된 영상은 재생하지 않습니다.', '곡명으로 검색하거나 음원·가사 영상 링크를 사용해 주세요.'),
+    'HB-M107': ('멜론 차트 조회 실패', '멜론 차트 정보를 가져오지 못했습니다.', '잠시 후 다시 시도하거나 곡명으로 검색해 주세요.'),
+    'HB-S101': ('시간 초과', '요청이 제한 시간 안에 완료되지 않았습니다.', '잠시 후 다시 시도해 주세요.'),
+    'HB-P101': ('봇 권한 부족', '봇에 작업을 수행할 권한이 없습니다.', '관리자에게 해당 채널의 봇 권한 확인을 요청해 주세요.'),
+    'HB-P102': ('사용자 권한 부족', '이 명령어를 사용할 권한이 없습니다.', '서버 관리자 또는 봇 소유자에게 요청해 주세요.'),
+    'HB-D101': ('디스코드 요청 실패', '디스코드가 요청을 처리하지 못했습니다.', '채널 상태를 확인한 뒤 잠시 후 다시 시도해 주세요.'),
+    'HB-F101': ('식단 조회 실패', '식단 정보를 가져오지 못했습니다.', '잠시 후 다시 시도해 주세요.'),
+    'HB-T101': ('음성 생성 실패', 'TTS 음성을 생성하거나 재생하지 못했습니다.', '문장을 짧게 바꿔 시도하고, 반복되면 조회코드를 보내 주세요.'),
+    'HB-A101': ('공지 전송 실패', '공지 전송을 완료하지 못했습니다.', '채널과 메시지 내용을 확인한 뒤 다시 시도해 주세요.'),
+    'HB-S999': ('처리 오류', '요청 처리 중 예상하지 못한 문제가 발생했습니다.', '조회코드를 운영자에게 보내 주세요.'),
+}
+ERROR_INDEX = Path('/dev/shm/honorary-bot-error-index')
+
+
+def prepare_error_index() -> None:
+    ERROR_INDEX.mkdir(mode=0o755, parents=False, exist_ok=True)
+    if ERROR_INDEX.is_symlink() or ERROR_INDEX.stat().st_uid != os.geteuid():
+        raise PermissionError('untrusted index directory')
+
+
+def write_error_index(payload: dict) -> None:
+    prepare_error_index()
+    reference = payload['reference']
+    if not re.fullmatch(r'HB-[A-Z][0-9]{3}-[A-F0-9]{12}', reference):
+        raise ValueError('invalid incident reference')
+    path = ERROR_INDEX / f'{reference}.json'
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        return
+    with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+        stream.write(json.dumps(payload, ensure_ascii=False))
+    os.chmod(path, 0o644)
+
+
+def rebuild_error_index() -> None:
+    prepare_error_index()
+    with _tx() as conn:
+        rows = conn.execute('SELECT payload FROM error_events').fetchall()
+    for row in rows:
+        write_error_index(json.loads(row['payload']))
+
+
+def error_code(exc: Exception, context: str) -> str:
+    import discord
+    from discord import app_commands
+    original = getattr(exc, 'original', exc)
+    message = str(original).replace('’', "'").lower()
+    if isinstance(original, app_commands.CheckFailure):
+        return 'HB-P102'
+    if isinstance(original, discord.Forbidden):
+        return 'HB-P101'
+    if isinstance(original, TimeoutError):
+        return 'HB-S101'
+    if isinstance(original, discord.ConnectionClosed):
+        return 'HB-M105'
+    if isinstance(original, discord.HTTPException):
+        return 'HB-D101'
+    if context.startswith('music'):
+        if context == 'music.chart':
+            return 'HB-M107'
+        if 'video unavailable' in message:
+            return 'HB-M102'
+        if '403' in message or "confirm you're not a bot" in message:
+            return 'HB-M103'
+        if type(original).__name__ == 'MusicStreamError' or context == 'music.stream':
+            return 'HB-M104'
+        if type(original).__name__ == 'MusicLookupError':
+            if '뮤직비디오는 재생하지 않습니다' in message:
+                return 'HB-M106'
+            return 'HB-M101'
+    return {'menu': 'HB-F101', 'tts': 'HB-T101', 'announcement': 'HB-A101'}.get(context, 'HB-S999')
+
+
+def report_error(exc: Exception, context: str, guild_id: int | None = None) -> str:
+    code = error_code(exc, context)
+    reference = f'{code}-{uuid.uuid4().hex[:12].upper()}'
+    original = getattr(exc, 'original', exc)
+    payload = {
+        'reference': reference, 'code': code, 'context': context,
+        'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'exception_type': type(original).__name__,
+        'http_status': getattr(original, 'status', None) if isinstance(getattr(original, 'status', None), int) else None,
+        'service_code': getattr(original, 'code', None) if isinstance(getattr(original, 'code', None), int) else None,
+        'frames': [{'file': Path(f.filename).name, 'line': f.lineno, 'function': f.name}
+                   for f in traceback.extract_tb(original.__traceback__)[-20:]],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False)
+    try:
+        with _tx() as conn:
+            conn.execute('INSERT INTO error_events VALUES (?, ?, ?)', (reference, guild_id, encoded))
+    except Exception:
+        logging.getLogger('honorary-bot.errors').warning('오류 DB 기록 실패 [%s]', reference)
+    # A non-sensitive support index readable by codex; private DB retains guild scope.
+    try:
+        write_error_index(payload)
+    except Exception:
+        logging.getLogger('honorary-bot.errors').warning('조회 인덱스 기록 실패 [%s]', reference)
+    logging.getLogger('honorary-bot.errors').error('오류 조회 %s', encoded)
+    title, explanation, action = ERROR_CATALOG[code]
+    return f'❌ **{title} · {code}**\n{explanation}\n{action}\n조회코드: `{reference}`\n`/오류코드`로 설명을 확인하거나 조회코드 전체를 보내 주세요.'
+
+
+def lookup_error(reference: str, guild_id: int) -> dict | None:
+    with _tx() as conn:
+        row = conn.execute('SELECT payload FROM error_events WHERE reference = ? AND guild_id = ?',
+                           (reference.strip().upper(), guild_id)).fetchone()
+    return json.loads(row['payload']) if row else None
+
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS error_events (
+    reference TEXT PRIMARY KEY,
+    guild_id INTEGER,
+    payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS users (
     guild_id      INTEGER NOT NULL,
     user_id       INTEGER NOT NULL,
@@ -83,6 +212,18 @@ def init(path: str) -> None:
         if "level_up_channel_id" not in columns:
             _conn.execute("ALTER TABLE guild_settings ADD COLUMN level_up_channel_id INTEGER")
         _conn.commit()
+    if Path(path).parent == Path('/var/lib/honorary-bot'):
+        try:
+            # Keep credentials and private DB inaccessible to other accounts.
+            parent = Path(path).parent
+            if parent.stat().st_uid == os.geteuid():
+                os.chmod(parent, 0o700)
+            # The shared, sanitized cache can disappear on host reboot; the
+            # persistent DB is authoritative and rebuilds it on bot startup.
+            rebuild_error_index()
+        except (OSError, ValueError):
+            logging.getLogger('honorary-bot.errors').warning('조회 인덱스 초기화 실패; DB 기록은 유지됩니다.')
+
 
 
 def close() -> None:

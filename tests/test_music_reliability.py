@@ -118,7 +118,8 @@ class LookupTimeoutTests(unittest.IsolatedAsyncioTestCase):
             channel=Mock(),
         )
         with patch.object(music, "_track_from_query", AsyncMock(side_effect=MusicLookupError("없음"))), \
-                patch.object(music, "_connect_for", AsyncMock()) as connect:
+                patch.object(music, "_connect_for", AsyncMock()) as connect, \
+                patch("cogs.music.db.report_error", return_value="❌ 없음"):
             await Music.play.callback(music, interaction, "IU Love")
             connect.assert_not_awaited()
             interaction.followup.send.assert_awaited_once_with("❌ 없음", ephemeral=True)
@@ -133,7 +134,8 @@ class LookupTimeoutTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch.object(music, "_track_from_query", AsyncMock(return_value=Mock())), \
                 patch.object(music, "_stream_url", AsyncMock(side_effect=RuntimeError("blocked"))), \
-                patch.object(music, "_connect_for", AsyncMock()) as connect:
+                patch.object(music, "_connect_for", AsyncMock()) as connect, \
+                patch("cogs.music.db.report_error", return_value="❌ 없음"):
             await Music.play.callback(music, interaction, "IU Love")
             connect.assert_not_awaited()
             interaction.followup.send.assert_awaited_once()

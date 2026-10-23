@@ -45,6 +45,25 @@ class HonoraryBot(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self._synced = False
+        self.tree.on_error = self.on_app_error
+
+    async def on_app_error(self, interaction: discord.Interaction, error):
+        # Cog handlers already send their own coded response.
+        if interaction.command and interaction.command._has_any_error_handlers():
+            return
+        message = db.report_error(error, 'command', interaction.guild_id)
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except discord.HTTPException:
+            pass
+
+    async def on_error(self, event_method, *args, **kwargs):
+        error = sys.exc_info()[1]
+        if error is not None:
+            db.report_error(error, 'event')
 
     async def setup_hook(self):
         for cog in COGS:

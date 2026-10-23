@@ -1,6 +1,7 @@
 """현재 곡과 대기 곡을 구분해 보여주는 대기열 페이지."""
 import math
 import discord
+import db
 
 PAGE_SIZE = 10
 
@@ -27,6 +28,13 @@ def queue_embed(current, waiting: list, page: int = 0) -> discord.Embed:
 
 
 class QueueView(discord.ui.View):
+    async def on_error(self, interaction, error, item):
+        text = db.report_error(error, 'music.queue', interaction.guild_id)
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+
     def __init__(self, current, waiting: list):
         super().__init__(timeout=180)
         self.current = current

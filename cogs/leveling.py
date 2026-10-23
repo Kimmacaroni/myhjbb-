@@ -401,16 +401,7 @@ PERMISSION_NAMES = {
 async def handle_command_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
 ):
-    if isinstance(error, app_commands.CheckFailure):
-        message = "이 명령어는 서버 관리자만 사용할 수 있습니다."
-    elif isinstance(error, app_commands.MissingPermissions):
-        needed = ", ".join(
-            f"`{PERMISSION_NAMES.get(p, p)}`" for p in error.missing_permissions
-        )
-        message = f"이 명령어는 {needed} 권한이 있는 사람만 사용할 수 있습니다."
-    else:
-        log.exception("명령어 처리 중 오류", exc_info=error)
-        message = "명령어를 처리하는 중 문제가 생겼습니다. 로그를 확인해 주세요."
+    message = db.report_error(error, 'command', getattr(interaction, 'guild_id', None))
 
     if interaction.response.is_done():
         await interaction.followup.send(message, ephemeral=True)

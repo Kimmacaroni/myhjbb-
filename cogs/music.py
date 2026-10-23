@@ -125,6 +125,13 @@ class PlayerState:
 
 
 class MusicSearchModal(discord.ui.Modal, title="명예회장봇 음악 재생"):
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        text = db.report_error(error, 'music.search', interaction.guild_id)
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+
     query = discord.ui.TextInput(
         label="유튜브 URL 또는 가수 · 노래 제목",
         placeholder="예: 아이유 좋은날 또는 유튜브 URL",
@@ -140,6 +147,13 @@ class MusicSearchModal(discord.ui.Modal, title="명예회장봇 음악 재생"):
 
 
 class MusicSeekModal(discord.ui.Modal, title="재생 위치 이동"):
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        text = db.report_error(error, 'music.seek', interaction.guild_id)
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+
     seconds = discord.ui.TextInput(label="이동할 시점(초)", placeholder="예: 90 = 1분 30초", max_length=6)
 
     def __init__(self, cog: "Music"):
@@ -164,7 +178,7 @@ class MusicDashboardView(discord.ui.View):
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
         log.exception("음악 대시보드 버튼 처리 실패: %s", getattr(item, "custom_id", None), exc_info=error)
-        message = "❌ 버튼 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        message = db.report_error(error, 'music.button', interaction.guild_id)
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(message, ephemeral=True)
@@ -289,8 +303,8 @@ class Music(commands.Cog):
                 voice = await member_voice.channel.connect(self_deaf=True, timeout=20)
         except Exception as exc:
             log.exception("음악 채널 메시지 검색 실패")
-            detail = self._safe_music_error(exc, "유튜브 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.")
-            await self._temporary_channel_message(message.channel, f"{member.mention} ❌ {detail}")
+            detail = db.report_error(exc, 'music.search', guild.id)
+            await self._temporary_channel_message(message.channel, f"{member.mention} {detail}", seconds=120)
             return
 
         state = self._state(guild.id)
@@ -753,10 +767,10 @@ class Music(commands.Cog):
                         log.warning("음원 연결 실패: 같은 곡의 스트림 주소를 한 번 갱신합니다.")
                         continue
                     log.exception("음악 재생 준비 실패")
-                    detail = self._safe_music_error(exc, "오디오 스트림을 준비하지 못했습니다.")
+                    detail = db.report_error(exc, 'music.stream', guild.id)
                     await self._temporary_channel_message(
                         track.channel,
-                        f"❌ **{track.title}** 재생에 실패해 다음 곡으로 넘어갑니다: {detail}",
+                        f"**{track.title}** 재생 실패 · 다음 곡으로 넘어갑니다.\n{detail}", seconds=120,
                     )
                 finally:
                     if state.progress_task:
@@ -824,7 +838,7 @@ class Music(commands.Cog):
             voice = await self._connect_for(interaction)
         except Exception as exc:
             log.exception("음악 검색 실패")
-            message = f"❌ {self._safe_music_error(exc, '음악을 찾지 못했습니다. 잠시 후 다시 시도해 주세요.')}"
+            message = db.report_error(exc, 'music.search', getattr(interaction, 'guild_id', None))
             await interaction.followup.send(message, ephemeral=True)
             return
 
@@ -866,10 +880,8 @@ class Music(commands.Cog):
                     task.cancel()
             await asyncio.gather(voice_task, chart_task, return_exceptions=True)
             log.exception("멜론 TOP100 차트 수집 실패")
-            detail = "멜론 TOP100을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
-            if isinstance(exc, MelonChartError):
-                detail = str(exc)
-            await interaction.followup.send(f"❌ {detail}", ephemeral=True)
+            detail = db.report_error(exc, 'music.chart', interaction.guild.id)
+            await interaction.followup.send(detail, ephemeral=True)
             return
 
         if voice is None:
