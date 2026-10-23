@@ -82,6 +82,11 @@ class Track:
     needs_music_search: bool = False
     requested_query: str | None = None
     http_headers: dict[str, str] = field(default_factory=dict, repr=False)
+    stream_retry_count: int = 0
+
+
+class MusicStreamError(MusicLookupError):
+    """FFmpeg could not read the selected stream."""
 
 
 class PlaybackVolumeTransformer(discord.PCMVolumeTransformer):
@@ -90,7 +95,7 @@ class PlaybackVolumeTransformer(discord.PCMVolumeTransformer):
     def read(self) -> bytes:
         data = super().read()
         if not data and getattr(self.original, "_current_error", None):
-            raise MusicLookupError("음원 서버 연결에 실패해 재생이 중단됐습니다. 잠시 후 다시 시도하거나 다른 링크를 사용해 주세요.")
+            raise MusicStreamError("음원 서버 연결에 실패해 재생이 중단됐습니다. 잠시 후 다시 시도하거나 다른 링크를 사용해 주세요.")
         return data
 
 
@@ -735,6 +740,18 @@ class Music(commands.Cog):
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    if (isinstance(exc, MusicStreamError) and track.stream_retry_count == 0
+                            and voice and voice.is_connected()):
+                        # Retry the same selected video once with a fresh URL.
+                        # Never search for or substitute another song.
+                        track.stream_retry_count += 1
+                        elapsed = max(0, int(asyncio.get_running_loop().time() - state.started_at))
+                        track.start_at += elapsed
+                        track.stream_url = None
+                        track.stream_url_obtained_at = 0.0
+                        state.queue.appendleft(track)
+                        log.warning("음원 연결 실패: 같은 곡의 스트림 주소를 한 번 갱신합니다.")
+                        continue
                     log.exception("음악 재생 준비 실패")
                     detail = self._safe_music_error(exc, "오디오 스트림을 준비하지 못했습니다.")
                     await self._temporary_channel_message(

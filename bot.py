@@ -26,7 +26,6 @@ COGS = (
     "cogs.leveling",
     "cogs.titles",
     "cogs.menu",
-    "cogs.traffic",
     "cogs.music",
     "cogs.tts",
     "cogs.updater",

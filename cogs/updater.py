@@ -22,7 +22,7 @@ class Updater(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="업데이트", description="GitHub 최신 버전으로 봇을 업데이트합니다. (봇 소유자 전용)")
+    @app_commands.command(name="업데이트", description="업데이트 방법을 확인합니다. 전용 계정에서는 Codex에 배포를 요청하세요.")
     async def update(self, interaction: discord.Interaction):
         if not is_bot_owner(interaction.user):
             await interaction.response.send_message("이 명령어는 봇 소유자만 사용할 수 있습니다.", ephemeral=True)
