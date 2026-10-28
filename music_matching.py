@@ -3,6 +3,12 @@
 import re
 import unicodedata
 
+# Explicit spelling equivalents only: never infer translations or fuzzy matches.
+SPELLING_EQUIVALENTS = {
+    "아드레날린": "adrenaline",
+    "에이티즈": "ateez",
+}
+
 
 class MusicLookupError(RuntimeError):
     """A safe, user-facing lookup failure."""
@@ -10,7 +16,8 @@ class MusicLookupError(RuntimeError):
 
 def _tokens(value: str) -> list[str]:
     value = unicodedata.normalize("NFKC", value).casefold()
-    return re.findall(r"[^\W_]+", value, flags=re.UNICODE)
+    return [SPELLING_EQUIVALENTS.get(token, token)
+            for token in re.findall(r"[^\W_]+", value, flags=re.UNICODE)]
 
 
 def matches_query(query: str, candidate: dict) -> bool:
@@ -18,7 +25,7 @@ def matches_query(query: str, candidate: dict) -> bool:
 
     Latin words require token boundaries (Love must not match Lovely).
     Korean spacing may vary, so adjacent Hangul words are also matched joined.
-    No fuzzy guesses or translated-name substitutions are accepted.
+    Only explicitly registered spelling equivalents are accepted; no fuzzy guesses.
     """
     requested = _tokens(query)
     raw_title = str(candidate.get("title") or "")

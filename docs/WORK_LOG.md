@@ -167,3 +167,10 @@
 - 공지 입력 검증 실패도 조회코드를 남긴다. 전체 코드 설명은 `docs/ERROR_CODES.md`에 기록했다.
 - 검증: 자동 테스트 80개와 git diff --check 통과.
 - 운영 배포 및 재시작 완료, 서비스 active/running 확인. 백업: `/var/lib/honorary-bot-backups/release-f17ugllj`. Discord 실제 기능 조작은 별도 확인이 필요하다.
+
+## 2026-10-28 — 아드레날린 에이티즈 검색 일치 수정
+
+- 조회코드 HB-M101-AAFB7CB554B0의 music.search 일치 실패 확인. 실제 YouTube 검색 결과는 영어 Adrenaline으로 표기되어 한글 검색어가 거절됐다.
+- 명시적 표기 대응 아드레날린/Adrenaline, 에이티즈/ATEEZ를 추가했다. 임의 번역·유사도 추측은 하지 않으며 다른 가수·곡명·변형 버전은 계속 거절한다.
+- 자동 테스트 83개 통과. 실제 검색에서 ATEEZ (에이티즈) Adrenaline 가사 음원 후보 선택 확인. Discord 음성 청취는 미검증.
+- 직접 배포·재시작 완료, 서비스 active/running. 백업 release-vhpimt9j.

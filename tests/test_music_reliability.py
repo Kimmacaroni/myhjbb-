@@ -12,6 +12,28 @@ def candidate(title, channel="IU - Topic"):
 
 
 class QueryMatchingTests(unittest.TestCase):
+    def test_adrenaline_korean_spelling_and_artist_order(self):
+        item = candidate("ATEEZ 에이티즈 'Adrenaline' Official Audio", 'JXS_BP Official')
+        for query in ('아드레날린 에이티즈', '에이티즈 아드레날린', 'ATEEZ Adrenaline'):
+            with self.subTest(query=query):
+                self.assertTrue(matches_query(query, item))
+        self.assertTrue(matches_query('아드레날린 에이티즈', candidate('Adrenaline', 'ATEEZ')))
+
+    def test_adrenaline_alias_preserves_song_artist_and_version_checks(self):
+        for title, channel in [('Adrenaline', 'Other Artist'),
+                               ('Other Song', 'ATEEZ'),
+                               ('Adrenaline (Speed Up Ver.)', 'ATEEZ'),
+                               ('Adrenaline (NO1 Ver.)', 'ATEEZ'),
+                               ('Adrenaline Again', 'ATEEZ')]:
+            with self.subTest(title=title, channel=channel):
+                self.assertFalse(matches_query('아드레날린 에이티즈', candidate(title, channel)))
+
+    def test_adrenaline_search_skips_modified_version(self):
+        items = [candidate('Adrenaline (Speed Up Ver.)', 'ATEEZ'),
+                 candidate("ATEEZ 에이티즈 'Adrenaline' Official Audio", 'JXS_BP Official')]
+        with patch.object(Music, '_search_music_candidates', return_value=items):
+            self.assertEqual(Music._find_music_candidate('아드레날린 에이티즈'), items[1])
+
     def test_matching_artist_and_song(self):
         self.assertTrue(matches_query("IU Love", candidate("Love (Official Audio)")))
 
