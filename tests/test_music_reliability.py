@@ -12,6 +12,25 @@ def candidate(title, channel="IU - Topic"):
 
 
 class QueryMatchingTests(unittest.TestCase):
+    def test_tula_power_up_spelling(self):
+        item = candidate('Power UP', '열혈툴라 [TULA]')
+        for query in ('파워업 툴라', '툴라 파워업', 'TULA Power Up'):
+            self.assertTrue(matches_query(query, item), query)
+
+    def test_tula_power_up_rejects_other_artist_and_versions(self):
+        for title, channel in [('Power Up', 'Red Velvet'),
+                               ('Power UP Instrumental', '열혈툴라 [TULA]'),
+                               ('Power Up Live', '열혈툴라 [TULA]'),
+                               ('Power Up 2020Ver.', '열혈툴라 [TULA]'),
+                               ('Break Up', '열혈툴라 [TULA]')]:
+            self.assertFalse(matches_query('파워업 툴라', candidate(title, channel)), title)
+
+    def test_tula_power_up_selects_unmodified_song(self):
+        items = [candidate('Power UP Instrumental', '열혈툴라 [TULA]'),
+                 candidate('Power UP', '열혈툴라 [TULA]')]
+        with patch.object(Music, '_search_music_candidates', return_value=items):
+            self.assertEqual(Music._find_music_candidate('파워업 툴라'), items[1])
+
     def test_adrenaline_korean_spelling_and_artist_order(self):
         item = candidate("ATEEZ 에이티즈 'Adrenaline' Official Audio", 'JXS_BP Official')
         for query in ('아드레날린 에이티즈', '에이티즈 아드레날린', 'ATEEZ Adrenaline'):

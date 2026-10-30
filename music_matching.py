@@ -7,6 +7,8 @@ import unicodedata
 SPELLING_EQUIVALENTS = {
     "아드레날린": "adrenaline",
     "에이티즈": "ateez",
+    "파워업": "power up",
+    "툴라": "tula",
 }
 
 
@@ -16,8 +18,9 @@ class MusicLookupError(RuntimeError):
 
 def _tokens(value: str) -> list[str]:
     value = unicodedata.normalize("NFKC", value).casefold()
-    return [SPELLING_EQUIVALENTS.get(token, token)
-            for token in re.findall(r"[^\W_]+", value, flags=re.UNICODE)]
+    return [part
+            for token in re.findall(r"[^\W_]+", value, flags=re.UNICODE)
+            for part in SPELLING_EQUIVALENTS.get(token, token).split()]
 
 
 def matches_query(query: str, candidate: dict) -> bool:

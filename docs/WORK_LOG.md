@@ -174,3 +174,9 @@
 - 명시적 표기 대응 아드레날린/Adrenaline, 에이티즈/ATEEZ를 추가했다. 임의 번역·유사도 추측은 하지 않으며 다른 가수·곡명·변형 버전은 계속 거절한다.
 - 자동 테스트 83개 통과. 실제 검색에서 ATEEZ (에이티즈) Adrenaline 가사 음원 후보 선택 확인. Discord 음성 청취는 미검증.
 - 직접 배포·재시작 완료, 서비스 active/running. 백업 release-vhpimt9j.
+
+## 2026-10-30 — 툴라 파워업 검색 수정
+
+- HB-M101-575AFF19E171: music.search에서 한글 파워업과 영어 Power UP 표기 차이로 일치 실패. 실제 결과 확인 후 명시 표기 대응 파워업/Power Up 및 툴라/TULA 추가. 여러 단어로 구성된 표기도 토큰으로 비교한다.
+- 다른 가수, 반주, 라이브, 추가 버전명 거절 테스트 포함 86개 통과. 실제 검색에서 Power UP / 열혈툴라 [TULA] 선택 확인. Discord 실제 청취 미검증.
+- 직접 배포·재시작 후 active/running 확인. 백업 release-kza8w8b6.
