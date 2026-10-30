@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import discord
+import db
 from discord import app_commands
 from discord.ext import commands
 
@@ -128,7 +129,7 @@ class KoreanTTS(commands.Cog):
                     raise RuntimeError(str(error))
             except Exception as exc:
                 log.exception("TTS 생성 또는 재생 실패")
-                await interaction.followup.send(f"❌ 음성 생성에 실패했습니다: {exc}", ephemeral=True)
+                await interaction.followup.send(db.report_error(exc, 'tts', interaction.guild.id), ephemeral=True)
             finally:
                 # 실행 중인 모델 스레드가 파일을 다 쓴 뒤 임시 파일을 정리한다.
                 await asyncio.gather(synthesis, return_exceptions=True)

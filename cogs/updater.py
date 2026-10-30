@@ -22,10 +22,16 @@ class Updater(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="업데이트", description="GitHub 최신 버전으로 봇을 업데이트합니다. (봇 소유자 전용)")
+    @app_commands.command(name="업데이트", description="업데이트 방법을 확인합니다. 전용 계정에서는 Codex에 배포를 요청하세요.")
     async def update(self, interaction: discord.Interaction):
         if not is_bot_owner(interaction.user):
             await interaction.response.send_message("이 명령어는 봇 소유자만 사용할 수 있습니다.", ephemeral=True)
+            return
+        if os.geteuid() != 0:
+            await interaction.response.send_message(
+                "현재 봇은 전용 계정으로 실행되어 이 자동 업데이트 명령을 사용할 수 없습니다. Codex에 배포를 요청해 주세요.",
+                ephemeral=True,
+            )
             return
         if not UPDATE_SCRIPT.is_file():
             await interaction.response.send_message("업데이트 실행 파일을 찾지 못했습니다.", ephemeral=True)

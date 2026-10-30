@@ -8,8 +8,15 @@ sqlite3는 동기 API지만 이 봇의 쿼리는 전부 인덱스 기반 단건 
 비동기 드라이버 없이 락으로만 직렬화합니다.
 """
 import datetime
+import json
+import logging
+import os
+from pathlib import Path
+import re
 import sqlite3
 import threading
+import traceback
+import uuid
 from contextlib import contextmanager
 
 import levels
@@ -17,8 +24,217 @@ import levels
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 
+# Stable public codes. Diagnostic records never contain exception messages,
+# command input, tokens, cookies, signed URLs, user names, or local variables.
+ERROR_CATALOG = {
+    'HB-M101': ('곡 검색 불일치', '검색어와 일치하는 음원을 찾지 못했습니다.', '가수명과 곡명을 확인하거나 해당 곡의 유튜브 링크를 입력해 주세요.'),
+    'HB-M102': ('재생 불가 영상', '유튜브가 이 영상의 재생을 허용하지 않았습니다.', '공개 상태·지역 제한을 확인하거나 다른 링크를 사용해 주세요.'),
+    'HB-M103': ('유튜브 접근 차단', '유튜브 또는 음원 서버가 요청을 차단했습니다.', '잠시 후 다시 시도하고, 반복되면 조회코드를 운영자에게 보내 주세요.'),
+    'HB-M104': ('음원 연결 실패', '음원 스트림 연결 또는 재생에 실패했습니다.', '다시 시도하거나 같은 곡의 다른 링크를 사용해 주세요.'),
+    'HB-M105': ('음성 연결 실패', '디스코드 음성 채널에 연결하지 못했습니다.', '봇의 연결·말하기 권한과 음성 채널 상태를 확인해 주세요.'),
+    'HB-M106': ('뮤직비디오 제외', '뮤직비디오로 분류된 영상은 재생하지 않습니다.', '곡명으로 검색하거나 음원·가사 영상 링크를 사용해 주세요.'),
+    'HB-M107': ('멜론 차트 조회 실패', '멜론 차트 정보를 가져오지 못했습니다.', '잠시 후 다시 시도하거나 곡명으로 검색해 주세요.'),
+    'HB-S101': ('시간 초과', '요청이 제한 시간 안에 완료되지 않았습니다.', '잠시 후 다시 시도해 주세요.'),
+    'HB-P101': ('봇 권한 부족', '봇에 작업을 수행할 권한이 없습니다.', '관리자에게 해당 채널의 봇 권한 확인을 요청해 주세요.'),
+    'HB-P102': ('사용자 권한 부족', '이 명령어를 사용할 권한이 없습니다.', '서버 관리자 또는 봇 소유자에게 요청해 주세요.'),
+    'HB-D101': ('디스코드 요청 실패', '디스코드가 요청을 처리하지 못했습니다.', '채널 상태를 확인한 뒤 잠시 후 다시 시도해 주세요.'),
+    'HB-F101': ('식단 조회 실패', '식단 정보를 가져오지 못했습니다.', '잠시 후 다시 시도해 주세요.'),
+    'HB-T101': ('음성 생성 실패', 'TTS 음성을 생성하거나 재생하지 못했습니다.', '문장을 짧게 바꿔 시도하고, 반복되면 조회코드를 보내 주세요.'),
+    'HB-A101': ('공지 전송 실패', '공지 전송을 완료하지 못했습니다.', '채널과 메시지 내용을 확인한 뒤 다시 시도해 주세요.'),
+    'HB-S999': ('처리 오류', '요청 처리 중 예상하지 못한 문제가 발생했습니다.', '조회코드를 운영자에게 보내 주세요.'),
+}
+ERROR_CATALOG.update({
+    'HB-M108': ('비공개 영상', '비공개 영상이라 재생할 수 없습니다.', '공개된 같은 곡의 링크를 사용해 주세요.'),
+    'HB-M109': ('삭제된 영상', '영상이 삭제되었거나 더 이상 제공되지 않습니다.', '다른 공개 링크를 사용해 주세요.'),
+    'HB-M110': ('지역 제한', '현재 서버 지역에서는 이 영상을 재생할 수 없습니다.', '지역 제한이 없는 공개 음원을 사용해 주세요.'),
+    'HB-M111': ('연령·로그인 제한', '연령 확인 또는 로그인이 필요한 영상입니다.', '로그인 제한이 없는 공개 링크를 사용해 주세요.'),
+    'HB-M112': ('음원 형식 없음', '사용 가능한 오디오 형식을 찾지 못했습니다.', '다른 음원 링크로 시도해 주세요.'),
+    'HB-M113': ('인증 쿠키 문제', '유튜브 인증 쿠키가 만료되었거나 유효하지 않습니다.', '운영자에게 조회코드를 보내 인증 상태 확인을 요청해 주세요.'),
+    'HB-M114': ('유튜브 요청 제한', '유튜브가 일시적으로 요청 횟수를 제한했습니다.', '연속 요청을 멈추고 잠시 후 다시 시도해 주세요.'),
+    'HB-M115': ('지원하지 않는 링크', '이 링크를 음원으로 처리할 수 없습니다.', '유튜브 영상 링크 또는 가수명과 곡명을 입력해 주세요.'),
+    'HB-M116': ('음성 암호화 불일치', '디스코드의 음성 암호화 요구사항과 맞지 않습니다.', '운영자에게 조회코드를 보내 음성 라이브러리 확인을 요청해 주세요.'),
+    'HB-M117': ('이미 재생 중', '음성 채널에서 다른 오디오가 재생 중입니다.', '현재 재생을 정지한 뒤 다시 시도해 주세요.'),
+    'HB-T102': ('TTS 모델 파일 없음', '음성 모델 파일을 찾지 못했습니다.', '운영자에게 조회코드를 보내 모델 설치 확인을 요청해 주세요.'),
+    'HB-T103': ('지원하지 않는 목소리', '선택한 음성 또는 모델을 사용할 수 없습니다.', '기본 목소리로 다시 시도해 주세요.'),
+    'HB-T104': ('음성 입력 길이 초과', '입력 문장이 음성 생성 한도를 넘었습니다.', '문장을 짧게 나눠 입력해 주세요.'),
+    'HB-T105': ('음성 생성 메모리 부족', '음성 생성에 필요한 메모리가 부족합니다.', '기본 목소리와 짧은 문장으로 다시 시도해 주세요.'),
+    'HB-F102': ('오늘 식단 없음', '오늘의 식단이 아직 등록되지 않았습니다.', '식단 등록 후 다시 조회해 주세요.'),
+    'HB-F103': ('식단 응답 형식 오류', '식단 서버의 응답을 해석하지 못했습니다.', '운영자에게 조회코드를 보내 주세요.'),
+    'HB-A102': ('공지 입력 한도 초과', '공지의 제목 또는 내용이 허용 길이를 넘었습니다.', '제목이나 내용을 줄여 다시 작성해 주세요.'),
+    'HB-A103': ('공지 입력 오류', '공지의 제목 또는 내용이 올바르지 않습니다.', '제목과 내용을 모두 입력하고 형식을 확인해 주세요.'),
+    'HB-D102': ('삭제된 채널·메시지', '대상 채널 또는 메시지를 찾을 수 없습니다.', '채널·대시보드 설정을 확인해 주세요.'),
+    'HB-D103': ('버튼·명령 응답 만료', '버튼 또는 명령의 응답 시간이 만료됐습니다.', '명령을 다시 실행하거나 최신 버튼을 눌러 주세요.'),
+    'HB-D104': ('중복 응답', '이미 응답한 명령에 다시 응답하려 했습니다.', '반복되면 조회코드를 운영자에게 보내 주세요.'),
+    'HB-D105': ('디스코드 요청 제한', '디스코드가 일시적으로 요청을 제한했습니다.', '연속 조작을 멈추고 잠시 후 다시 시도해 주세요.'),
+    'HB-D106': ('디스코드 서버 오류', '디스코드 서버에서 요청을 처리하지 못했습니다.', '잠시 후 다시 시도해 주세요.'),
+    'HB-D107': ('메시지 형식·길이 오류', '전송할 메시지가 디스코드의 형식 또는 길이 제한에 맞지 않습니다.', '내용을 줄이거나 조회코드를 운영자에게 보내 주세요.'),
+    'HB-S102': ('네트워크 연결 실패', '외부 서버에 연결하지 못했습니다.', '잠시 후 다시 시도하고 반복되면 조회코드를 보내 주세요.'),
+    'HB-S103': ('저장소 사용 중', '데이터베이스가 다른 작업을 처리 중입니다.', '잠시 후 다시 시도해 주세요.'),
+    'HB-S104': ('데이터베이스 이상', '저장된 데이터를 정상적으로 읽을 수 없습니다.', '조회코드를 운영자에게 보내 주세요. 데이터를 삭제하지 마세요.'),
+    'HB-S105': ('디스크 공간 부족', '서버 저장 공간이 부족합니다.', '운영자에게 조회코드를 보내 주세요.'),
+    'HB-S106': ('실행 구성요소 없음', '기능 실행에 필요한 모듈이나 프로그램을 찾지 못했습니다.', '운영자에게 조회코드를 보내 설치 상태 확인을 요청해 주세요.'),
+})
+ERROR_INDEX = Path('/dev/shm/honorary-bot-error-index')
+
+
+def prepare_error_index() -> None:
+    ERROR_INDEX.mkdir(mode=0o755, parents=False, exist_ok=True)
+    if ERROR_INDEX.is_symlink() or ERROR_INDEX.stat().st_uid != os.geteuid():
+        raise PermissionError('untrusted index directory')
+
+
+def write_error_index(payload: dict) -> None:
+    prepare_error_index()
+    reference = payload['reference']
+    if not re.fullmatch(r'HB-[A-Z][0-9]{3}-[A-F0-9]{12}', reference):
+        raise ValueError('invalid incident reference')
+    path = ERROR_INDEX / f'{reference}.json'
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        return
+    with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+        stream.write(json.dumps(payload, ensure_ascii=False))
+    os.chmod(path, 0o644)
+
+
+def rebuild_error_index() -> None:
+    prepare_error_index()
+    with _tx() as conn:
+        rows = conn.execute('SELECT payload FROM error_events').fetchall()
+    for row in rows:
+        write_error_index(json.loads(row['payload']))
+
+
+def error_code(exc: Exception, context: str) -> str:
+    import discord
+    import requests
+    from discord import app_commands
+    original = getattr(exc, 'original', exc)
+    message = str(original).replace('’', "'").lower()
+    if isinstance(original, sqlite3.DatabaseError):
+        return 'HB-S103' if 'locked' in message or 'busy' in message else 'HB-S104'
+    if isinstance(original, OSError) and original.errno == 28:
+        return 'HB-S105'
+    if isinstance(original, (ImportError, ModuleNotFoundError)):
+        return 'HB-S106'
+    if isinstance(original, discord.InteractionResponded):
+        return 'HB-D104'
+    if isinstance(original, discord.HTTPException):
+        if original.code in (10062, 10015):
+            return 'HB-D103'
+        if original.code == 40060:
+            return 'HB-D104'
+        if original.status == 429:
+            return 'HB-D105'
+        if original.status >= 500:
+            return 'HB-D106'
+        if original.code == 50035:
+            return 'HB-D107'
+        if isinstance(original, discord.NotFound):
+            return 'HB-D102'
+    if isinstance(original, app_commands.CheckFailure):
+        return 'HB-P102'
+    if isinstance(original, discord.Forbidden):
+        return 'HB-P101'
+    if isinstance(original, (TimeoutError, requests.exceptions.Timeout)):
+        return 'HB-S101'
+    if isinstance(original, (ConnectionError, requests.exceptions.ConnectionError)):
+        return 'HB-S102'
+    if isinstance(original, discord.ConnectionClosed):
+        return 'HB-M116' if original.code == 4017 else 'HB-M105'
+    if isinstance(original, discord.HTTPException):
+        return 'HB-D101'
+    if context.startswith('music'):
+        if context == 'music.chart':
+            return 'HB-M107'
+        patterns = (
+            ('HB-M108', ('private video', 'this video is private')),
+            ('HB-M109', ('video has been removed', 'video was removed', 'deleted video')),
+            ('HB-M110', ('not available in your country', 'geo restricted', 'geo-restricted')),
+            ('HB-M111', ('age-restricted', 'confirm your age', 'sign in to confirm your age')),
+            ('HB-M113', ('cookies are no longer valid', 'cookies have expired', 'invalid cookie')),
+            ('HB-M114', ('429', 'too many requests')),
+            ('HB-M112', ('requested format is not available', 'no video formats found', 'no audio formats')),
+            ('HB-M115', ('unsupported url',)),
+            ('HB-M117', ('already playing', '준비 중 다른 음악이 시작')),
+        )
+        for code, fragments in patterns:
+            if any(fragment in message for fragment in fragments):
+                return code
+        if 'video unavailable' in message:
+            return 'HB-M102'
+        if '403' in message or "confirm you're not a bot" in message:
+            return 'HB-M103'
+        if type(original).__name__ == 'MusicStreamError' or context == 'music.stream':
+            return 'HB-M104'
+        if type(original).__name__ == 'MusicLookupError':
+            if '뮤직비디오는 재생하지 않습니다' in message:
+                return 'HB-M106'
+            return 'HB-M101'
+    if context == 'tts':
+        if isinstance(original, MemoryError) or 'out of memory' in message:
+            return 'HB-T105'
+        if isinstance(original, FileNotFoundError):
+            return 'HB-T102'
+        if 'unsupported voice' in message or 'unknown voice' in message:
+            return 'HB-T103'
+        if 'too long' in message or 'maximum length' in message:
+            return 'HB-T104'
+    if isinstance(original, FileNotFoundError):
+        return 'HB-S106'
+    if context == 'menu':
+        if '오늘의 식단 정보가 없습니다' in message:
+            return 'HB-F102'
+        if isinstance(original, (ValueError, TypeError, KeyError)):
+            return 'HB-F103'
+    if context == 'announcement' and isinstance(original, ValueError):
+        return 'HB-A102' if '자까지' in message else 'HB-A103'
+    return {'menu': 'HB-F101', 'tts': 'HB-T101', 'announcement': 'HB-A101'}.get(context, 'HB-S999')
+
+
+def report_error(exc: Exception, context: str, guild_id: int | None = None) -> str:
+    code = error_code(exc, context)
+    reference = f'{code}-{uuid.uuid4().hex[:12].upper()}'
+    original = getattr(exc, 'original', exc)
+    payload = {
+        'reference': reference, 'code': code, 'context': context,
+        'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'exception_type': type(original).__name__,
+        'http_status': getattr(original, 'status', None) if isinstance(getattr(original, 'status', None), int) else None,
+        'service_code': getattr(original, 'code', None) if isinstance(getattr(original, 'code', None), int) else None,
+        'frames': [{'file': Path(f.filename).name, 'line': f.lineno, 'function': f.name}
+                   for f in traceback.extract_tb(original.__traceback__)[-20:]],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False)
+    try:
+        with _tx() as conn:
+            conn.execute('INSERT INTO error_events VALUES (?, ?, ?)', (reference, guild_id, encoded))
+    except Exception:
+        logging.getLogger('honorary-bot.errors').warning('오류 DB 기록 실패 [%s]', reference)
+    # A non-sensitive support index readable by codex; private DB retains guild scope.
+    try:
+        write_error_index(payload)
+    except Exception:
+        logging.getLogger('honorary-bot.errors').warning('조회 인덱스 기록 실패 [%s]', reference)
+    logging.getLogger('honorary-bot.errors').error('오류 조회 %s', encoded)
+    title, explanation, action = ERROR_CATALOG[code]
+    return f'❌ **{title} · {code}**\n{explanation}\n{action}\n조회코드: `{reference}`\n`/오류코드`로 설명을 확인하거나 조회코드 전체를 보내 주세요.'
+
+
+def lookup_error(reference: str, guild_id: int) -> dict | None:
+    with _tx() as conn:
+        row = conn.execute('SELECT payload FROM error_events WHERE reference = ? AND guild_id = ?',
+                           (reference.strip().upper(), guild_id)).fetchone()
+    return json.loads(row['payload']) if row else None
+
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS error_events (
+    reference TEXT PRIMARY KEY,
+    guild_id INTEGER,
+    payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS users (
     guild_id      INTEGER NOT NULL,
     user_id       INTEGER NOT NULL,
@@ -46,7 +262,8 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     menu_channel_id    INTEGER,
     traffic_channel_id INTEGER,
     music_channel_id   INTEGER,
-    music_message_id   INTEGER
+    music_message_id   INTEGER,
+    level_up_channel_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS traffic_seen_incidents (
@@ -79,7 +296,21 @@ def init(path: str) -> None:
             _conn.execute("ALTER TABLE guild_settings ADD COLUMN music_channel_id INTEGER")
         if "music_message_id" not in columns:
             _conn.execute("ALTER TABLE guild_settings ADD COLUMN music_message_id INTEGER")
+        if "level_up_channel_id" not in columns:
+            _conn.execute("ALTER TABLE guild_settings ADD COLUMN level_up_channel_id INTEGER")
         _conn.commit()
+    if Path(path).parent == Path('/var/lib/honorary-bot'):
+        try:
+            # Keep credentials and private DB inaccessible to other accounts.
+            parent = Path(path).parent
+            if parent.stat().st_uid == os.geteuid():
+                os.chmod(parent, 0o700)
+            # The shared, sanitized cache can disappear on host reboot; the
+            # persistent DB is authoritative and rebuilds it on bot startup.
+            rebuild_error_index()
+        except (OSError, ValueError):
+            logging.getLogger('honorary-bot.errors').warning('조회 인덱스 초기화 실패; DB 기록은 유지됩니다.')
+
 
 
 def close() -> None:
@@ -223,6 +454,22 @@ def find_title_by_name(guild_id: int, name: str) -> sqlite3.Row | None:
 
 
 # ── 서버별 설정 ───────────────────────────────────────
+
+def set_level_up_channel(guild_id: int, channel_id: int | None) -> None:
+    """None이면 서버별 지정만 해제하고 기존 알림 경로로 돌아갑니다."""
+    with _tx() as conn:
+        conn.execute(
+            """INSERT INTO guild_settings (guild_id, level_up_channel_id) VALUES (?, ?)
+               ON CONFLICT (guild_id) DO UPDATE SET level_up_channel_id = excluded.level_up_channel_id""",
+            (guild_id, channel_id),
+        )
+
+
+def get_level_up_channel(guild_id: int) -> int | None:
+    with _tx() as conn:
+        row = conn.execute("SELECT level_up_channel_id FROM guild_settings WHERE guild_id = ?",
+                           (guild_id,)).fetchone()
+    return row["level_up_channel_id"] if row else None
 
 def set_menu_channel(guild_id: int, channel_id: int | None) -> None:
     """식단을 보낼 채널을 지정합니다. None이면 자동 전송을 끕니다."""
