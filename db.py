@@ -280,6 +280,20 @@ CREATE TABLE IF NOT EXISTS bot_settings (
 """
 
 
+def permission_request_sent(guild_id: int, missing: int) -> bool:
+    with _tx() as conn:
+        row = conn.execute('SELECT value FROM bot_settings WHERE key = ?',
+                           (f'announcement_permissions:{guild_id}',)).fetchone()
+    return bool(row and row['value'] == str(missing))
+
+
+def mark_permission_request(guild_id: int, missing: int) -> None:
+    with _tx() as conn:
+        conn.execute('INSERT INTO bot_settings (key, value) VALUES (?, ?) '
+                     'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                     (f'announcement_permissions:{guild_id}', str(missing)))
+
+
 def init(path: str) -> None:
     global _conn
     _conn = sqlite3.connect(path, check_same_thread=False)
