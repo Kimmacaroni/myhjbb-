@@ -12,6 +12,47 @@ def candidate(title, channel="IU - Topic"):
 
 
 class QueryMatchingTests(unittest.TestCase):
+    def test_tula_power_up_spelling(self):
+        item = candidate('Power UP', '열혈툴라 [TULA]')
+        for query in ('파워업 툴라', '툴라 파워업', 'TULA Power Up'):
+            self.assertTrue(matches_query(query, item), query)
+
+    def test_tula_power_up_rejects_other_artist_and_versions(self):
+        for title, channel in [('Power Up', 'Red Velvet'),
+                               ('Power UP Instrumental', '열혈툴라 [TULA]'),
+                               ('Power Up Live', '열혈툴라 [TULA]'),
+                               ('Power Up 2020Ver.', '열혈툴라 [TULA]'),
+                               ('Break Up', '열혈툴라 [TULA]')]:
+            self.assertFalse(matches_query('파워업 툴라', candidate(title, channel)), title)
+
+    def test_tula_power_up_selects_unmodified_song(self):
+        items = [candidate('Power UP Instrumental', '열혈툴라 [TULA]'),
+                 candidate('Power UP', '열혈툴라 [TULA]')]
+        with patch.object(Music, '_search_music_candidates', return_value=items):
+            self.assertEqual(Music._find_music_candidate('파워업 툴라'), items[1])
+
+    def test_adrenaline_korean_spelling_and_artist_order(self):
+        item = candidate("ATEEZ 에이티즈 'Adrenaline' Official Audio", 'JXS_BP Official')
+        for query in ('아드레날린 에이티즈', '에이티즈 아드레날린', 'ATEEZ Adrenaline'):
+            with self.subTest(query=query):
+                self.assertTrue(matches_query(query, item))
+        self.assertTrue(matches_query('아드레날린 에이티즈', candidate('Adrenaline', 'ATEEZ')))
+
+    def test_adrenaline_alias_preserves_song_artist_and_version_checks(self):
+        for title, channel in [('Adrenaline', 'Other Artist'),
+                               ('Other Song', 'ATEEZ'),
+                               ('Adrenaline (Speed Up Ver.)', 'ATEEZ'),
+                               ('Adrenaline (NO1 Ver.)', 'ATEEZ'),
+                               ('Adrenaline Again', 'ATEEZ')]:
+            with self.subTest(title=title, channel=channel):
+                self.assertFalse(matches_query('아드레날린 에이티즈', candidate(title, channel)))
+
+    def test_adrenaline_search_skips_modified_version(self):
+        items = [candidate('Adrenaline (Speed Up Ver.)', 'ATEEZ'),
+                 candidate("ATEEZ 에이티즈 'Adrenaline' Official Audio", 'JXS_BP Official')]
+        with patch.object(Music, '_search_music_candidates', return_value=items):
+            self.assertEqual(Music._find_music_candidate('아드레날린 에이티즈'), items[1])
+
     def test_matching_artist_and_song(self):
         self.assertTrue(matches_query("IU Love", candidate("Love (Official Audio)")))
 
@@ -27,6 +68,51 @@ class QueryMatchingTests(unittest.TestCase):
 
     def test_korean_spacing(self):
         self.assertTrue(matches_query("아이유 좋은날", candidate("좋은 날", "아이유 - Topic")))
+
+    def test_partial_artist_and_exact_song_title(self):
+        self.assertTrue(matches_query('a20 neon', candidate("A20 LITE - 'NEON' Official Audio", 'A2O FAMILY')))
+
+    def test_partial_artist_does_not_allow_another_song(self):
+        self.assertFalse(matches_query('a20 neon', candidate("A20 LITE - 'SUPERSTAR' Official Audio", 'A2O FAMILY')))
+        self.assertFalse(matches_query('a20 neon', candidate("A20 LITE - 'NEON AGAIN' Official Audio", 'A2O FAMILY')))
+        self.assertFalse(matches_query('a20 neon', candidate("Other Artist - 'NEON' Official Audio", 'A20 FAMILY')))
+
+    def test_digit_and_letter_are_not_silently_interchanged(self):
+        self.assertFalse(matches_query('a20 neon', candidate("A2O LITE - 'NEON' Official Audio", 'A2O FAMILY')))
+
+    def test_artist_alias_and_mixed_lyrics_label(self):
+        self.assertTrue(matches_query('아이유 좋은날', candidate('아이유(IU) - 좋은 날 [가사/Lyrics]', '웅키')))
+        self.assertTrue(matches_query('윤하 사건의 지평선', candidate('윤하(YOUNHA) - 사건의 지평선 [가사/Lyrics]', '웅키')))
+
+    def test_artist_name_alone_does_not_match_song(self):
+        self.assertFalse(matches_query('A20 LITE', candidate("A20 LITE - 'NEON' Official Audio", 'A2O FAMILY')))
+
+    def test_a20_neon_search_finds_exact_audio(self):
+        items = [candidate("A2O LITE 'NEON' Official Video", 'A2O WORLD'),
+                 candidate("A20 LITE - 'NEON' Official Audio", 'A2O FAMILY')]
+        with patch.object(Music, '_search_music_candidates', return_value=items):
+            self.assertEqual(Music._find_music_candidate('a20 neon')['title'], items[1]['title'])
+
+    def test_cherryfilter_lyrics_annotation(self):
+        self.assertTrue(matches_query("체리필터 내게로와",
+                                     candidate("체리필터 내게로 와 (가사 첨부)", "All NORE")))
+
+    def test_bilingual_korean_and_english_title(self):
+        self.assertTrue(matches_query("체리필터 내게로와",
+                                     candidate("체리필터 - 내게로 와 | Cherryfilter - Come to me",
+                                               "cherryfilter")))
+
+    def test_bilingual_does_not_allow_another_korean_song(self):
+        self.assertFalse(matches_query("체리필터 내게로와",
+                                      candidate("체리필터 - 오리 날다 | Cherryfilter - Flying Duck",
+                                                "cherryfilter")))
+        self.assertFalse(matches_query("체리필터 내게로와",
+                                      candidate("체리필터 - 내게로 와 다시 | Cherryfilter - Come to me",
+                                                "cherryfilter")))
+
+    def test_unrecognized_annotations_are_not_removed(self):
+        self.assertFalse(matches_query("체리필터 내게로와",
+                                      candidate("체리필터 내게로 와 (다른곡)", "All NORE")))
 
     def test_missing_title_is_rejected(self):
         self.assertFalse(matches_query("IU", candidate("", "IU - Topic")))
@@ -73,7 +159,8 @@ class LookupTimeoutTests(unittest.IsolatedAsyncioTestCase):
             channel=Mock(),
         )
         with patch.object(music, "_track_from_query", AsyncMock(side_effect=MusicLookupError("없음"))), \
-                patch.object(music, "_connect_for", AsyncMock()) as connect:
+                patch.object(music, "_connect_for", AsyncMock()) as connect, \
+                patch("cogs.music.db.report_error", return_value="❌ 없음"):
             await Music.play.callback(music, interaction, "IU Love")
             connect.assert_not_awaited()
             interaction.followup.send.assert_awaited_once_with("❌ 없음", ephemeral=True)
@@ -88,7 +175,8 @@ class LookupTimeoutTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch.object(music, "_track_from_query", AsyncMock(return_value=Mock())), \
                 patch.object(music, "_stream_url", AsyncMock(side_effect=RuntimeError("blocked"))), \
-                patch.object(music, "_connect_for", AsyncMock()) as connect:
+                patch.object(music, "_connect_for", AsyncMock()) as connect, \
+                patch("cogs.music.db.report_error", return_value="❌ 없음"):
             await Music.play.callback(music, interaction, "IU Love")
             connect.assert_not_awaited()
             interaction.followup.send.assert_awaited_once()

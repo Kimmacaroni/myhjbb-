@@ -124,15 +124,65 @@ class Leveling(commands.Cog):
             await target.send(embed=embed)
         except discord.Forbidden:
             log.warning("레벨업 알림을 보낼 권한이 없습니다. (서버: %s)", member.guild.id)
+        except discord.HTTPException:
+            log.exception("레벨업 알림 전송 실패 (서버: %s)", member.guild.id)
 
     def _announce_channel(
         self, guild: discord.Guild, fallback: discord.abc.Messageable | None
     ):
+        configured = db.get_level_up_channel(guild.id)
+        if configured is not None:
+            # 삭제된 지정 채널 대신 다른 채널로 공지를 보내지 않는다.
+            return guild.get_channel(configured)
         if config.LEVEL_UP_CHANNEL_ID:
             channel = guild.get_channel(config.LEVEL_UP_CHANNEL_ID)
             if channel is not None:
                 return channel
         return fallback or guild.system_channel
+
+    @app_commands.command(name="레벨업채널설정", description="이 서버의 레벨업 알림 채널을 지정합니다.")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(채널="알림을 보낼 텍스트 채널 (생략하면 현재 채널)")
+    @admin_only()
+    async def set_level_channel(self, interaction: discord.Interaction,
+                                채널: discord.TextChannel | None = None):
+        target = 채널 or interaction.channel
+        if not isinstance(target, discord.TextChannel) or target.guild.id != interaction.guild.id:
+            await interaction.response.send_message("이 서버의 텍스트 채널을 지정해 주세요.", ephemeral=True)
+            return
+        permissions = target.permissions_for(interaction.guild.me)
+        if not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
+            await interaction.response.send_message(
+                "봇에 해당 채널의 보기·메시지 보내기·링크 첨부 권한이 필요합니다.", ephemeral=True)
+            return
+        db.set_level_up_channel(interaction.guild.id, target.id)
+        await interaction.response.send_message(f"✅ 레벨업 알림 채널을 {target.mention}로 설정했습니다.",
+                                                ephemeral=True)
+
+    @app_commands.command(name="레벨업채널해제", description="지정 채널을 해제하고 기존 레벨업 알림 방식으로 돌아갑니다.")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @admin_only()
+    async def clear_level_channel(self, interaction: discord.Interaction):
+        db.set_level_up_channel(interaction.guild.id, None)
+        await interaction.response.send_message(
+            "레벨업 알림 채널 지정을 해제했습니다. 기존 설정 또는 경험치를 얻은 채널·시스템 채널로 알립니다.",
+            ephemeral=True)
+
+    @app_commands.command(name="레벨업설정", description="레벨업 알림 채널 설정을 확인합니다.")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @admin_only()
+    async def show_level_channel(self, interaction: discord.Interaction):
+        channel_id = db.get_level_up_channel(interaction.guild.id)
+        if channel_id is None:
+            text = "별도 지정 없음: 기존 설정 또는 경험치를 얻은 채널·시스템 채널로 알립니다."
+        elif interaction.guild.get_channel(channel_id) is None:
+            text = "지정된 채널을 찾을 수 없습니다. `/레벨업채널설정`으로 다시 지정해 주세요."
+        else:
+            text = f"레벨업 알림 채널: <#{channel_id}>"
+        await interaction.response.send_message(text, ephemeral=True)
 
     # ── 채팅 경험치 ───────────────────────────────────
 
@@ -351,16 +401,7 @@ PERMISSION_NAMES = {
 async def handle_command_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
 ):
-    if isinstance(error, app_commands.CheckFailure):
-        message = "이 명령어는 서버 관리자만 사용할 수 있습니다."
-    elif isinstance(error, app_commands.MissingPermissions):
-        needed = ", ".join(
-            f"`{PERMISSION_NAMES.get(p, p)}`" for p in error.missing_permissions
-        )
-        message = f"이 명령어는 {needed} 권한이 있는 사람만 사용할 수 있습니다."
-    else:
-        log.exception("명령어 처리 중 오류", exc_info=error)
-        message = "명령어를 처리하는 중 문제가 생겼습니다. 로그를 확인해 주세요."
+    message = db.report_error(error, 'command', getattr(interaction, 'guild_id', None))
 
     if interaction.response.is_done():
         await interaction.followup.send(message, ephemeral=True)

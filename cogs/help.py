@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from access_control import ADMIN_COMMAND_NAMES
+import db
 
 
 def _usage(command: app_commands.Command) -> str:
@@ -47,6 +48,31 @@ def _chunks(lines: list[str], limit: int = 1024) -> list[str]:
 class Help(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    @app_commands.command(name='오류코드', description='오류 코드의 뜻과 해결 방법을 확인합니다.')
+    @app_commands.guild_only()
+    @app_commands.describe(코드='오류 종류 코드 또는 조회코드 전체 (생략하면 코드 목록)')
+    async def error_help(self, interaction: discord.Interaction, 코드: str | None = None):
+        if not 코드:
+            text = '\n'.join(f'`{code}` — {item[0]}' for code, item in db.ERROR_CATALOG.items())
+            await interaction.response.send_message(text, ephemeral=True)
+            return
+        reference = 코드.strip().upper()
+        code = reference if reference in db.ERROR_CATALOG else reference.rsplit('-', 1)[0]
+        if code not in db.ERROR_CATALOG:
+            await interaction.response.send_message('알 수 없는 코드입니다. 메시지의 조회코드 전체를 복사해 주세요.', ephemeral=True)
+            return
+        event = None
+        if reference != code:
+            event = db.lookup_error(reference, interaction.guild.id)
+            if event is None:
+                await interaction.response.send_message('이 서버에서 발생한 조회코드를 찾지 못했습니다. 코드가 정확한지 확인해 주세요.', ephemeral=True)
+                return
+        title, explanation, action = db.ERROR_CATALOG[code]
+        text = f'**{title} · {code}**\n{explanation}\n{action}'
+        if event:
+            text += f"\n발생 시각(UTC): {event['created_at']}\n조회코드: `{event['reference']}`"
+        await interaction.response.send_message(text, ephemeral=True)
 
     @app_commands.command(name="도움말", description="사용 가능한 명령어와 설명을 보여줍니다.")
     async def show_help(self, interaction: discord.Interaction):

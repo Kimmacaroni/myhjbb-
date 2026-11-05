@@ -97,7 +97,7 @@ class Menu(commands.Cog):
             await interaction.followup.send(embed=await menu_source.build_embed())
         except Exception as exc:
             log.exception("식단 조회 실패")
-            await interaction.followup.send(f"❌ 식단을 불러오지 못했습니다: {exc}")
+            await interaction.followup.send(db.report_error(exc, 'menu', interaction.guild.id))
 
     @app_commands.command(
         name="식단채널설정", description="식단을 매일 자동으로 올릴 채널을 지정합니다."
