@@ -12,6 +12,11 @@ def candidate(title, channel="IU - Topic"):
 
 
 class QueryMatchingTests(unittest.TestCase):
+    def test_search_uses_plain_query_before_optional_fallbacks(self):
+        with patch.object(Music, '_search_music_candidates', return_value=[candidate('Love')]) as search:
+            Music._find_music_candidate('IU Love')
+        search.assert_called_once_with('IU Love')
+
     def test_search_accepts_upload_descriptions_and_search_hints(self):
         for title in ('Love [고음질]', 'Love (Official Lyric Video)',
                       'Love [Lyrics/가사/해석]', 'Love [4K]',
@@ -167,6 +172,34 @@ class QueryMatchingTests(unittest.TestCase):
 
 
 class LookupTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_direct_url_allows_music_video_live_cover_and_instrumental(self):
+        music = Music(None)
+        for title in ('Official Music Video', 'Live Cover', 'Instrumental'):
+            info = dict(title=title, webpage_url='https://youtube.com/watch?v=123',
+                        url='https://audio.example/stream', http_headers={})
+            with patch.object(music, '_extract', return_value=info), \
+                 patch.object(music, '_find_music_candidate') as search:
+                track = await music._track_from_query(' https://youtube.com/watch?v=123 ', 'user', None)
+                self.assertIsNone(track.requested_query)
+                self.assertEqual(await music._stream_url(track), info['url'])
+                search.assert_not_called()
+
+    async def test_search_metadata_cache_reuses_extraction_and_copies_results(self):
+        Music._cached_search_candidates.cache_clear()
+        with patch('cogs.music.yt_dlp.YoutubeDL') as factory:
+            extract = factory.return_value.__enter__.return_value.extract_info
+            extract.return_value = {'entries': [candidate('Love')]}
+            with patch('cogs.music.time.monotonic', return_value=120):
+                first = Music._search_music_candidates('cache-test')
+                first[0]['title'] = 'mutated'
+                second = Music._search_music_candidates('cache-test')
+            self.assertEqual(second[0]['title'], 'Love')
+            extract.assert_called_once()
+            with patch('cogs.music.time.monotonic', return_value=181):
+                Music._search_music_candidates('cache-test')
+            self.assertEqual(extract.call_count, 2)
+        Music._cached_search_candidates.cache_clear()
+
     async def test_search_failure_never_joins_voice(self):
         music = Music(None)
         interaction = SimpleNamespace(

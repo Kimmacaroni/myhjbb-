@@ -13,6 +13,7 @@ import shlex
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Deque
 
 import discord
@@ -485,12 +486,19 @@ class Music(commands.Cog):
 
     @staticmethod
     def _search_music_candidates(query: str) -> list[dict]:
+        # Cache only flat search metadata, never signed playback URLs. Repeated
+        # requests reuse results briefly; stream availability is still checked.
+        return [dict(entry) for entry in Music._cached_search_candidates(query, int(time.monotonic() // 60))]
+
+    @staticmethod
+    @lru_cache(maxsize=64)
+    def _cached_search_candidates(query: str, minute: int) -> tuple[dict, ...]:
         # 검색 결과의 영상까지 풀어서 추출하지 않는다. 실제 스트림은 선택된 곡만 준비한다.
         search_options = {**YTDLP_OPTIONS, "extract_flat": True}
         search_options.pop("noplaylist", None)
         with yt_dlp.YoutubeDL(search_options) as ydl:
             info = ydl.extract_info(f"ytsearch10:{query}", download=False)
-        return [entry for entry in info.get("entries", []) if entry]
+        return tuple(entry for entry in info.get("entries", []) if entry)
 
     @staticmethod
     def _is_youtube_bot_block(exc: Exception) -> bool:
@@ -558,9 +566,9 @@ class Music(commands.Cog):
     @classmethod
     def _find_music_candidate(cls, query: str) -> dict:
         attempts = (
+            (query, False),
             (f"{query} official audio", True),
             (f"{query} 음원 가사 mp3", True),
-            (query, False),
         )
         for search_query, audio_only in attempts:
             candidates = [
@@ -596,13 +604,12 @@ class Music(commands.Cog):
     async def _track_from_query(
         self, query: str, requester: str, channel: discord.abc.Messageable
     ) -> Track:
-        direct_url = bool(YOUTUBE_URL_PATTERN.match(query.strip()))
+        query = query.strip()
+        direct_url = bool(YOUTUBE_URL_PATTERN.match(query))
         info = await asyncio.wait_for(
             asyncio.to_thread(self._extract if direct_url else self._find_music_candidate, query),
             timeout=LOOKUP_TIMEOUT_SECONDS,
         )
-        if direct_url and self._is_music_video(info):
-            raise MusicLookupError("뮤직비디오는 재생하지 않습니다. 곡명으로 다시 검색해 주세요.")
         url = info.get("webpage_url") or info.get("original_url") or info.get("url") or query
         stream_url = info.get("url") if direct_url else None
         return Track(
