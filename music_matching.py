@@ -23,6 +23,22 @@ def _tokens(value: str) -> list[str]:
             for part in SPELLING_EQUIVALENTS.get(token, token).split()]
 
 
+def _strip_upload_labels(title: str) -> str:
+    """Ignore upload descriptions, but retain unknown text and version names."""
+    label = re.compile(
+        r'^(?:(?:official\s+)?(?:audio|music\s+video|lyric\s+video|lyrics?|visualizer)|'
+        r'(?:color\s+coded\s+)?lyrics?(?:\s+(?:eng|rom|han|kor|가사|한국어|해석))*|'
+        r'해석|가사(?:\s*(?:첨부|포함|영상|해석))?|한글\s*가사|'
+        r'(?:original\s+animation\s+)?soundtrack|ost|'
+        r'(?:고음질|음원|mp3|hd|hq|4k|1080p|320\s*kbps))$', re.I)
+
+    def replace(match):
+        parts = re.split(r'\s*[/|·,]\s*', match.group(0)[1:-1].strip())
+        return ' ' if parts and all(label.fullmatch(p.strip()) for p in parts) else match.group(0)
+
+    return re.sub(r'\([^()]*\)|\[[^\[\]]*\]', replace, title)
+
+
 def matches_query(query: str, candidate: dict) -> bool:
     """Require every query token in title/artist/channel, with a title match.
 
@@ -30,8 +46,10 @@ def matches_query(query: str, candidate: dict) -> bool:
     Korean spacing may vary, so adjacent Hangul words are also matched joined.
     Only explicitly registered spelling equivalents are accepted; no fuzzy guesses.
     """
-    requested = _tokens(query)
-    raw_title = str(candidate.get("title") or "")
+    # Search hints describe the desired upload rather than the song's identity.
+    hints = {'가사', '음원', '노래', 'lyrics', 'audio', 'official', 'mp3'}
+    requested = [t for t in _tokens(query) if t not in hints]
+    raw_title = _strip_upload_labels(str(candidate.get("title") or ""))
     # Metadata labels are not song-title words. Strip only known full labels.
     raw_title = re.sub(
         r"[\[(](?:(?:가사\s*(?:첨부|포함|영상)?|(?:color\s+coded\s+)?lyrics?|official\s+audio|audio|음원|mp3)\s*(?:[/|]\s*)?)+[\])]",
@@ -68,7 +86,18 @@ def matches_query(query: str, candidate: dict) -> bool:
             return token in "".join(fields)
         return token in fields
 
-    return bool(requested and title_identity
+    # Permit spacing differences only when the entire remaining title agrees.
+    # This accepts "LoveDive" / "Love Dive", but never "Love" / "Love Again".
+    requested_song = [t for t in requested if not contains(t, creator)]
+    candidate_song = [t for t in title_identity if not contains(t, creator)]
+    spacing_match = bool(requested_song and candidate_song
+                         and ''.join(requested_song) == ''.join(candidate_song)
+                         and (not explicit_artist or all(
+                             not contains(t, creator) or contains(t, explicit_artist)
+                             for t in requested)))
+    # If the query contains an artist, it must be accounted for by this upload.
+    # Equality above retains any unmatched artist token, so it cannot disappear.
+    return spacing_match or bool(requested and title_identity
                 and all(contains(t, identity) for t in requested)
                 and (not explicit_artist or all(
                     contains(t, title_identity) or contains(t, explicit_artist) for t in requested))

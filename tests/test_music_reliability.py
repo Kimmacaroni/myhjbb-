@@ -12,6 +12,23 @@ def candidate(title, channel="IU - Topic"):
 
 
 class QueryMatchingTests(unittest.TestCase):
+    def test_search_accepts_upload_descriptions_and_search_hints(self):
+        for title in ('Love [고음질]', 'Love (Official Lyric Video)',
+                      'Love [Lyrics/가사/해석]', 'Love [4K]',
+                      'Love (Original Animation Soundtrack)'):
+            self.assertTrue(matches_query('IU Love 가사', candidate(title)), title)
+
+    def test_english_spacing_without_partial_song_match(self):
+        self.assertTrue(matches_query('IVE LoveDive', candidate('Love Dive', 'IVE - Topic')))
+        self.assertTrue(matches_query('IVE Love Dive', candidate('LoveDive', 'IVE - Topic')))
+        self.assertFalse(matches_query('Other LoveDive', candidate('Love Dive', 'IVE - Topic')))
+        self.assertFalse(matches_query('IU Love', candidate('Love Again')))
+
+    def test_relaxed_labels_do_not_remove_versions_or_unknown_titles(self):
+        for title in ('Love (Live)', 'Love [Cover]', 'Love (Speed Up)',
+                      'Love (다른곡)', 'Love [Lyrics/Other Song]'):
+            self.assertFalse(matches_query('IU Love', candidate(title)), title)
+
     def test_tula_power_up_spelling(self):
         item = candidate('Power UP', '열혈툴라 [TULA]')
         for query in ('파워업 툴라', '툴라 파워업', 'TULA Power Up'):
