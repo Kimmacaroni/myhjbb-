@@ -1,14 +1,20 @@
-"""Conservative metadata matching: ambiguous results must not be played."""
+"""Rank music identities using spelling aliases and bounded typo matching."""
 
 import re
 import unicodedata
 
-# Explicit spelling equivalents only: never infer translations or fuzzy matches.
+# Common Korean spellings resolve to the same artist/title identity.
 SPELLING_EQUIVALENTS = {
     "아드레날린": "adrenaline",
     "에이티즈": "ateez",
     "파워업": "power up",
     "툴라": "tula",
+    "투앤이원": "2ne1",
+    "투엔이원": "2ne1",
+    "투애니원": "2ne1",
+    "투에니원": "2ne1",
+    "퐈이어": "fire",
+    "파이어": "fire",
 }
 
 
@@ -39,7 +45,7 @@ def _strip_upload_labels(title: str) -> str:
     return re.sub(r'\([^()]*\)|\[[^\[\]]*\]', replace, title)
 
 
-def matches_query(query: str, candidate: dict) -> bool:
+def _matches_query_exact(query: str, candidate: dict) -> bool:
     """Require every query token in title/artist/channel, with a title match.
 
     Latin words require token boundaries (Love must not match Lovely).
@@ -104,3 +110,73 @@ def matches_query(query: str, candidate: dict) -> bool:
                 and any(contains(t, title_identity) for t in requested)
                 and all(contains(t, requested) or contains(t, creator)
                         for t in title_identity))
+
+
+def normalized_search_query(query: str) -> str:
+    normalized = ' '.join(_tokens(query))
+    return query.strip() if normalized == query.strip().casefold() else normalized
+
+
+def _word_similarity(left: str, right: str) -> float:
+    if left == right:
+        return 1.0
+    # Very short words and artist initials are too ambiguous for typo guesses.
+    if min(len(left), len(right)) < 3:
+        return 0.0
+    # Compare Hangul by its letters as well, so a misspelled syllable can match.
+    left = unicodedata.normalize('NFD', left)
+    right = unicodedata.normalize('NFD', right)
+    rows = [[0] * (len(right) + 1) for _ in range(len(left) + 1)]
+    for i in range(len(left) + 1):
+        rows[i][0] = i
+    for j in range(len(right) + 1):
+        rows[0][j] = j
+    for i in range(1, len(left) + 1):
+        for j in range(1, len(right) + 1):
+            rows[i][j] = min(rows[i - 1][j] + 1, rows[i][j - 1] + 1,
+                             rows[i - 1][j - 1] + (left[i - 1] != right[j - 1]))
+            if i > 1 and j > 1 and left[i - 1] == right[j - 2] and left[i - 2] == right[j - 1]:
+                rows[i][j] = min(rows[i][j], rows[i - 2][j - 2] + 1)
+    return 1 - rows[-1][-1] / max(len(left), len(right))
+
+
+def query_score(query: str, candidate: dict) -> float:
+    """Exact identity wins; otherwise rank small artist/title spelling errors."""
+    if _matches_query_exact(query, candidate):
+        return 1.0
+    # A typo in a song name must not turn "Love" into a "Live" version.
+    version_words = r'\b(?:live|cover|instrumental|remix|slowed|sped|version|ver)\b|라이브|커버|반주'
+    if re.search(version_words, str(candidate.get('title') or ''), re.I) and not re.search(version_words, query, re.I):
+        return 0.0
+    labels = {'official', 'audio', 'video', 'lyrics', 'lyric', 'mp3', 'topic',
+              '가사', '음원', '노래', '뮤비', '뮤직비디오'}
+
+    def tokens(text):
+        return [t for t in _tokens(text) if t not in labels]
+
+    requested = tokens(query)
+    raw_title = _strip_upload_labels(str(candidate.get('title') or ''))
+    parts = re.split(r'\s+[-–—]\s+', raw_title, maxsplit=1)
+    title = tokens(parts[-1])
+    explicit = tokens(parts[0]) if len(parts) == 2 else []
+    creator = explicit + tokens(' '.join(str(candidate.get(k) or '') for k in ('artist', 'channel', 'uploader')))
+    if not requested or not title:
+        return 0.0
+
+    def best(word, pool):
+        return max((_word_similarity(word, other) for other in pool), default=0.0)
+
+    identity = title + (explicit if explicit else creator)
+    coverage = [best(word, identity) for word in requested]
+    song = [word for word in title if word not in creator]
+    # Artist-only queries must not select an arbitrary song from that channel.
+    if not song or not any(best(word, song) >= .7 for word in requested):
+        return 0.0
+    title_coverage = [best(word, requested) for word in song]
+    if min(coverage) < .7 or min(title_coverage) < .7:
+        return 0.0
+    return min(.99, (sum(coverage) / len(coverage) + sum(title_coverage) / len(title_coverage)) / 2)
+
+
+def matches_query(query: str, candidate: dict) -> bool:
+    return query_score(query, candidate) >= .72

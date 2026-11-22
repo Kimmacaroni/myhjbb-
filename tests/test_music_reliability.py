@@ -4,7 +4,7 @@ from unittest.mock import patch, AsyncMock, Mock
 from types import SimpleNamespace
 
 from cogs.music import Music, Track
-from music_matching import MusicLookupError, matches_query
+from music_matching import MusicLookupError, matches_query, query_score
 
 
 def candidate(title, channel="IU - Topic"):
@@ -12,6 +12,28 @@ def candidate(title, channel="IU - Topic"):
 
 
 class QueryMatchingTests(unittest.TestCase):
+    def test_2ne1_fire_korean_spellings_and_typos(self):
+        item = candidate('2NE1 - FIRE (Official Audio)', '2NE1')
+        for query in ('투앤이원 퐈이어', '투엔이원 파이어', '2ne1 fire',
+                      '투애니원 파이어', '파이어 투앤이원', '2nei fier'):
+            self.assertTrue(matches_query(query, item), query)
+
+    def test_typos_in_artist_and_title_are_accepted(self):
+        self.assertTrue(matches_query('Younha 사건의 지평션', candidate('사건의 지평선', 'YOUNHA')))
+        self.assertTrue(matches_query('Ateez Adrenalin', candidate('Adrenaline', 'ATEEZ')))
+
+    def test_relevance_wins_over_official_upload_score(self):
+        exact = candidate('2NE1 - FIRE', '2NE1')
+        close = candidate('2NE1 - FIRES Official Audio', '2NE1 - Topic')
+        with patch.object(Music, '_search_music_candidates', return_value=[close, exact]):
+            self.assertEqual(Music._find_music_candidate('투앤이원 퐈이어'), exact)
+        self.assertGreater(query_score('2ne1 fire', exact), query_score('2ne1 fire', close))
+
+    def test_typo_match_is_rechecked_when_resolving_stream(self):
+        track = Track('FIRE', 'url', None, None, 'requester', None, requested_query='2nei fier')
+        with patch.object(Music, '_extract', return_value=candidate('FIRE', '2NE1')):
+            self.assertEqual(Music._resolve_stream_info(track)['title'], 'FIRE')
+
     def test_search_uses_plain_query_before_optional_fallbacks(self):
         with patch.object(Music, '_search_music_candidates', return_value=[candidate('Love')]) as search:
             Music._find_music_candidate('IU Love')

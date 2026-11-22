@@ -23,7 +23,7 @@ import yt_dlp
 import db
 from melon_chart import MelonChartEntry, MelonChartError, fetch_melon_top100
 from voice_idle import cancel_idle, schedule_idle
-from music_matching import MusicLookupError, matches_query
+from music_matching import MusicLookupError, matches_query, query_score, normalized_search_query
 from music_queue import QueueView, queue_embed
 
 log = logging.getLogger(__name__)
@@ -566,7 +566,7 @@ class Music(commands.Cog):
     @classmethod
     def _find_music_candidate(cls, query: str) -> dict:
         attempts = (
-            (query, False),
+            (normalized_search_query(query), False),
             (f"{query} official audio", True),
             (f"{query} 음원 가사 mp3", True),
         )
@@ -587,8 +587,8 @@ class Music(commands.Cog):
                     if cls._is_audio_only(candidate)
                 ]
             if candidates:
-                return max(candidates, key=cls._candidate_score)
-        raise MusicLookupError("검색어와 일치하는 음원을 찾지 못했습니다. 가수명과 곡명을 정확히 입력해 주세요. 다른 곡은 재생하지 않습니다.")
+                return max(candidates, key=lambda item: (query_score(query, item), cls._candidate_score(item)))
+        raise MusicLookupError("검색어와 가까운 음원을 찾지 못했습니다. 가수명이나 곡명을 조금 더 적거나 유튜브 링크를 입력해 주세요.")
 
     @classmethod
     def _resolve_stream_info(cls, track: Track) -> dict:
