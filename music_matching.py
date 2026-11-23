@@ -15,6 +15,9 @@ SPELLING_EQUIVALENTS = {
     "투에니원": "2ne1",
     "퐈이어": "fire",
     "파이어": "fire",
+    "씨엘": "cl",
+    "씨엘에": "cl",
+    "아이코닉": "iconic",
 }
 
 

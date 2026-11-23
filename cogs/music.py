@@ -22,7 +22,7 @@ from discord.ext import commands
 import yt_dlp
 import db
 from melon_chart import MelonChartEntry, MelonChartError, fetch_melon_top100
-from voice_idle import cancel_idle, schedule_idle
+from voice_idle import cancel_idle, schedule_idle, ReliableVoiceClient
 from music_matching import MusicLookupError, matches_query, query_score, normalized_search_query
 from music_queue import QueueView, queue_embed
 
@@ -228,6 +228,17 @@ class Music(commands.Cog):
         self.bot = bot
         self.players: dict[int, PlayerState] = {}
         self.dashboard_channels: set[int] = set()
+        self.voice_connect_locks: dict[int, asyncio.Lock] = {}
+
+    async def _join_voice(self, channel):
+        lock = self.voice_connect_locks.setdefault(channel.guild.id, asyncio.Lock())
+        async with lock:
+            current = channel.guild.voice_client
+            if current and current.is_connected():
+                return current
+            if current:
+                await current.disconnect(force=True)
+            return await channel.connect(cls=ReliableVoiceClient, self_deaf=True, timeout=20, reconnect=False)
 
     async def cog_load(self):
         self.bot.add_view(MusicDashboardView(self))
@@ -301,7 +312,7 @@ class Music(commands.Cog):
                     await voice.move_to(member_voice.channel)
                     await guild.change_voice_state(channel=member_voice.channel, self_deaf=True)
             else:
-                voice = await member_voice.channel.connect(self_deaf=True, timeout=20)
+                voice = await self._join_voice(member_voice.channel)
         except Exception as exc:
             log.exception("음악 채널 메시지 검색 실패")
             detail = db.report_error(exc, 'music.search', guild.id)
@@ -825,7 +836,7 @@ class Music(commands.Cog):
                 await guild.change_voice_state(channel=voice_state.channel, self_deaf=True)
             return current
 
-        return await voice_state.channel.connect(self_deaf=True, timeout=20)
+        return await self._join_voice(voice_state.channel)
 
     @app_commands.command(name="재생", description="유튜브 URL 또는 검색어를 음성 채널에서 재생합니다.")
     @app_commands.describe(검색어="유튜브 URL 또는 가수명과 노래 제목")

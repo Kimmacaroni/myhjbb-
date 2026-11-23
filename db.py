@@ -31,7 +31,7 @@ ERROR_CATALOG = {
     'HB-M102': ('재생 불가 영상', '유튜브가 이 영상의 재생을 허용하지 않았습니다.', '공개 상태·지역 제한을 확인하거나 다른 링크를 사용해 주세요.'),
     'HB-M103': ('유튜브 접근 차단', '유튜브 또는 음원 서버가 요청을 차단했습니다.', '잠시 후 다시 시도하고, 반복되면 조회코드를 운영자에게 보내 주세요.'),
     'HB-M104': ('음원 연결 실패', '음원 스트림 연결 또는 재생에 실패했습니다.', '다시 시도하거나 같은 곡의 다른 링크를 사용해 주세요.'),
-    'HB-M105': ('음성 연결 실패', '디스코드 음성 채널에 연결하지 못했습니다.', '봇의 연결·말하기 권한과 음성 채널 상태를 확인해 주세요.'),
+    'HB-M105': ('음성 연결 실패', '음악 검색 이후 디스코드 음성 연결에 실패했습니다.', '봇의 연결·말하기 권한을 확인하고 반복되면 조회코드를 보내 주세요. 서버 UDP 연결 확인이 필요합니다.'),
     'HB-M106': ('뮤직비디오 제외', '뮤직비디오로 분류된 영상은 재생하지 않습니다.', '곡명으로 검색하거나 음원·가사 영상 링크를 사용해 주세요.'),
     'HB-M107': ('멜론 차트 조회 실패', '멜론 차트 정보를 가져오지 못했습니다.', '잠시 후 다시 시도하거나 곡명으로 검색해 주세요.'),
     'HB-S101': ('시간 초과', '요청이 제한 시간 안에 완료되지 않았습니다.', '잠시 후 다시 시도해 주세요.'),
@@ -109,6 +109,7 @@ def rebuild_error_index() -> None:
 def error_code(exc: Exception, context: str) -> str:
     import discord
     import requests
+    from voice_idle import VoiceConnectionTimeout
     from discord import app_commands
     original = getattr(exc, 'original', exc)
     message = str(original).replace('’', "'").lower()
@@ -137,6 +138,8 @@ def error_code(exc: Exception, context: str) -> str:
         return 'HB-P102'
     if isinstance(original, discord.Forbidden):
         return 'HB-P101'
+    if isinstance(original, VoiceConnectionTimeout):
+        return 'HB-M105'
     if isinstance(original, (TimeoutError, requests.exceptions.Timeout)):
         return 'HB-S101'
     if isinstance(original, (ConnectionError, requests.exceptions.ConnectionError)):

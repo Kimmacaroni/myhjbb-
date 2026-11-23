@@ -12,6 +12,11 @@ def candidate(title, channel="IU - Topic"):
 
 
 class QueryMatchingTests(unittest.TestCase):
+    def test_cl_iconic_with_korean_artist_suffix(self):
+        item = candidate('CL - ‘ICONIC’ (Official Audio)', 'CL')
+        for query in ('씨엘에 아이코닉', '씨엘 아이코닉', 'CL ICONIC'):
+            self.assertTrue(matches_query(query, item), query)
+
     def test_2ne1_fire_korean_spellings_and_typos(self):
         item = candidate('2NE1 - FIRE (Official Audio)', '2NE1')
         for query in ('투앤이원 퐈이어', '투엔이원 파이어', '2ne1 fire',
