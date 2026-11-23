@@ -10,7 +10,9 @@ import logging
 import os
 import re
 import shlex
+import subprocess
 import time
+from copy import deepcopy
 from collections import deque
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -19,7 +21,16 @@ from typing import Deque
 import discord
 from discord import app_commands
 from discord.ext import commands
+# The dedicated service account owns this pinned runtime; the root-owned
+# virtualenv is preserved. Fresh installs use the requirements version.
+import sys
+YTDLP_RUNTIME_DIRECTORY = '/var/lib/honorary-bot/runtime/yt-dlp-2026.10.26'
+if os.path.isdir(YTDLP_RUNTIME_DIRECTORY):
+    sys.path.insert(0, YTDLP_RUNTIME_DIRECTORY)
 import yt_dlp
+from yt_dlp.networking import Request
+from yt_dlp.networking.exceptions import HTTPError as MediaHTTPError
+from urllib.parse import urlparse, parse_qs
 import db
 from melon_chart import MelonChartEntry, MelonChartError, fetch_melon_top100
 from voice_idle import cancel_idle, schedule_idle, ReliableVoiceClient
@@ -27,6 +38,7 @@ from music_matching import MusicLookupError, matches_query, query_score, normali
 from music_queue import QueueView, queue_embed
 
 log = logging.getLogger(__name__)
+log.info('음원 추출기 버전: %s', yt_dlp.version.__version__)
 
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 FFMPEG_OPTIONS = "-vn"
@@ -68,6 +80,7 @@ elif COOKIE_FILE:
     log.warning("YTDLP_COOKIE_FILE 경로에 쿠키 파일이 없습니다: %s", COOKIE_FILE)
 
 
+
 @dataclass
 class Track:
     title: str
@@ -85,10 +98,51 @@ class Track:
     http_headers: dict[str, str] = field(default_factory=dict, repr=False)
     stream_retry_count: int = 0
     selected_video_id: str | None = None
+    download_transport: bool = False
 
 
 class MusicStreamError(MusicLookupError):
     """FFmpeg could not read the selected stream."""
+
+
+class DownloaderAudioSource(discord.FFmpegPCMAudio):
+    """Keep yt-dlp's working media transport instead of reopening its URL."""
+
+    def __init__(self, track):
+        args = [sys.executable, '-m', 'yt_dlp', '--quiet', '--no-warnings',
+                '--remote-components', 'ejs:npm', '--no-playlist', '--format', 'bestaudio/best',
+                '--socket-timeout', '10', '--retries', '1', '-o', '-']
+        if COOKIE_FILE:
+            args.extend(['--cookies', COOKIE_FILE])
+        args.append(track.webpage_url)
+        env = dict(os.environ)
+        if os.path.isdir(YTDLP_RUNTIME_DIRECTORY):
+            env['PYTHONPATH'] = YTDLP_RUNTIME_DIRECTORY + os.pathsep + env.get('PYTHONPATH', '')
+        self.downloader = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+        try:
+            options = FFMPEG_OPTIONS + (f' -ss {track.start_at}' if track.start_at else '')
+            super().__init__(self.downloader.stdout, pipe=True, options=options)
+        except Exception:
+            self._stop_downloader()
+            raise
+
+    def _stop_downloader(self):
+        process = self.downloader
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+        if process.stdout:
+            process.stdout.close()
+
+    def cleanup(self):
+        if getattr(self, 'downloader', None):
+            self._stop_downloader()
+        if getattr(self, '_process', None):
+            super().cleanup()
 
 
 class PlaybackVolumeTransformer(discord.PCMVolumeTransformer):
@@ -96,7 +150,19 @@ class PlaybackVolumeTransformer(discord.PCMVolumeTransformer):
 
     def read(self) -> bytes:
         data = super().read()
-        if not data and getattr(self.original, "_current_error", None):
+        if data:
+            self.frames_read = getattr(self, 'frames_read', 0) + 1
+            return data
+        failed = bool(getattr(self.original, "_current_error", None))
+        process = getattr(self.original, '_process', None)
+        if process and not getattr(self.original, '_stopped', False):
+            # stdout EOF can arrive just before poll() observes process exit.
+            try:
+                returncode = process.wait(timeout=.25)
+            except Exception:
+                returncode = None
+            failed = failed or (isinstance(returncode, int) and returncode != 0)
+        if failed or not getattr(self, 'frames_read', 0):
             raise MusicStreamError("음원 서버 연결에 실패해 재생이 중단됐습니다. 잠시 후 다시 시도하거나 다른 링크를 사용해 주세요.")
         return data
 
@@ -488,12 +554,30 @@ class Music(commands.Cog):
 
     @staticmethod
     def _extract(query: str) -> dict:
-        with yt_dlp.YoutubeDL(YTDLP_OPTIONS) as ydl:
+        with yt_dlp.YoutubeDL(deepcopy(YTDLP_OPTIONS)) as ydl:
             info = ydl.extract_info(query, download=False)
-        if info and "entries" in info:
-            info = next((entry for entry in info["entries"] if entry), None)
-        if not info:
-            raise RuntimeError("검색 결과를 찾지 못했습니다.")
+            if info and "entries" in info:
+                info = next((entry for entry in info["entries"] if entry), None)
+            if not info:
+                raise RuntimeError("검색 결과를 찾지 못했습니다.")
+            # A returned URL is not proof that the media server will serve it.
+            # Check a small range with the extraction client's cookies/IP before
+            # connecting to voice or handing this URL to FFmpeg.
+            host = (urlparse(info.get('url') or '').hostname or '').lower()
+            if host.endswith('.googlevideo.com') and info.get('protocol') == 'https':
+                headers = {**(info.get('http_headers') or {}), 'Range': 'bytes=0-4095'}
+                try:
+                    with ydl.urlopen(Request(info['url'], headers=headers)) as response:
+                        if not response.read(4096):
+                            raise MusicStreamError('음원 서버에서 오디오 데이터를 받지 못했습니다.')
+                except MediaHTTPError as exc:
+                    if exc.status != 403:
+                        raise
+                    # The native downloader can serve media that rejects a
+                    # separately opened URL. Keep the same video and stream it
+                    # through stdout; never select another song.
+                    info['_download_transport'] = True
+                    info['url'] = info.get('webpage_url') or query
         return info
 
     @staticmethod
@@ -617,9 +701,19 @@ class Music(commands.Cog):
         if track.needs_music_search:
             candidate = cls._find_music_candidate(track.webpage_url)
             track.webpage_url = candidate.get("webpage_url") or candidate["url"]
-            if candidate.get('_search_rank_inferred'):
-                track.selected_video_id = candidate['id']
+            if candidate.get('id'):
+                track.selected_video_id = str(candidate['id'])
             track.needs_music_search = False
+        parsed = urlparse(track.webpage_url)
+        host = (parsed.hostname or '').lower()
+        video_id = (parse_qs(parsed.query).get('v') or [''])[0] if (
+            host == 'youtube.com' or host.endswith('.youtube.com')) else (
+            parsed.path.strip('/') if host == 'youtu.be' else '')
+        if track.selected_video_id and video_id == track.selected_video_id:
+            # Search has already selected this exact video. Let the native
+            # downloader extract and receive it once, instead of extracting a
+            # rejected URL first and then doing the same work again.
+            return {'url': track.webpage_url, '_download_transport': True}
         info = cls._extract(track.webpage_url)
         if track.selected_video_id:
             if str(info.get('id') or '') != track.selected_video_id:
@@ -650,7 +744,8 @@ class Music(commands.Cog):
             stream_url_obtained_at=time.monotonic() if stream_url else 0.0,
             requested_query=None if direct_url else query,
             http_headers=info.get("http_headers") or {},
-            selected_video_id=str(info['id']) if info.get('_search_rank_inferred') else None,
+            selected_video_id=str(info['id']) if info.get('id') else None,
+            download_transport=bool(info.get('_download_transport')),
         )
 
     @staticmethod
@@ -702,6 +797,7 @@ class Music(commands.Cog):
         if not stream_url:
             raise RuntimeError("오디오 스트림 주소를 찾지 못했습니다.")
         track.stream_url = stream_url
+        track.download_transport = bool(info.get('_download_transport'))
         track.http_headers = info.get("http_headers") or {}
         track.stream_url_obtained_at = time.monotonic()
         return stream_url
@@ -745,7 +841,7 @@ class Music(commands.Cog):
                     # 현재 곡 재생을 시작하는 동안 다음 곡의 URL도 병렬로 준비한다.
                     self._prefetch_next(state)
                     stream_url = await self._stream_url(track)
-                    audio = discord.FFmpegPCMAudio(
+                    audio = DownloaderAudioSource(track) if track.download_transport else discord.FFmpegPCMAudio(
                         stream_url,
                         before_options=ffmpeg_before_options(track),
                         options=FFMPEG_OPTIONS,
@@ -794,7 +890,8 @@ class Music(commands.Cog):
                         # Retry the same selected video once with a fresh URL.
                         # Never search for or substitute another song.
                         track.stream_retry_count += 1
-                        elapsed = max(0, int(asyncio.get_running_loop().time() - state.started_at))
+                        frames = getattr(state.current_source, 'frames_read', 0)
+                        elapsed = frames // 50 if isinstance(frames, int) else 0
                         track.start_at += elapsed
                         track.stream_url = None
                         track.stream_url_obtained_at = 0.0
