@@ -12,6 +12,28 @@ def candidate(title, channel="IU - Topic"):
 
 
 class QueryMatchingTests(unittest.TestCase):
+    def test_unregistered_foreign_pronunciation_uses_youtube_music_rank(self):
+        item = {**candidate('Poker Face (Official Audio)', 'Lady Gaga - Topic'), 'id': 'poker'}
+        with patch.object(Music, '_search_music_candidates', return_value=[item]):
+            selected = Music._find_music_candidate('레이디가가 포커페이스')
+        self.assertEqual(selected['id'], 'poker')
+        self.assertTrue(selected['_search_rank_inferred'])
+
+    def test_cross_script_fallback_never_chooses_cover(self):
+        item = {**candidate('Poker Face Cover Lyrics', 'Other'), 'id': 'cover'}
+        with patch.object(Music, '_search_music_candidates', return_value=[item]):
+            with self.assertRaises(MusicLookupError):
+                Music._find_music_candidate('레이디가가 포커페이스')
+
+    def test_inferred_stream_checks_video_identity_instead_of_korean_spelling(self):
+        track = Track('Poker Face', 'url', None, None, 'requester', None,
+                      requested_query='레이디가가 포커페이스', selected_video_id='poker')
+        with patch.object(Music, '_extract', return_value={'id': 'poker', 'title': 'Poker Face'}):
+            self.assertEqual(Music._resolve_stream_info(track)['id'], 'poker')
+        with patch.object(Music, '_extract', return_value={'id': 'other', 'title': 'Poker Face'}):
+            with self.assertRaises(MusicLookupError):
+                Music._resolve_stream_info(track)
+
     def test_cl_iconic_with_korean_artist_suffix(self):
         item = candidate('CL - ‘ICONIC’ (Official Audio)', 'CL')
         for query in ('씨엘에 아이코닉', '씨엘 아이코닉', 'CL ICONIC'):

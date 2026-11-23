@@ -84,6 +84,7 @@ class Track:
     requested_query: str | None = None
     http_headers: dict[str, str] = field(default_factory=dict, repr=False)
     stream_retry_count: int = 0
+    selected_video_id: str | None = None
 
 
 class MusicStreamError(MusicLookupError):
@@ -582,15 +583,16 @@ class Music(commands.Cog):
             (f"{query} 음원 가사 mp3", True),
         )
         for search_query, audio_only in attempts:
-            candidates = [
+            results = cls._search_music_candidates(search_query)
+            eligible = [
                 candidate
-                for candidate in cls._search_music_candidates(search_query)
+                for candidate in results
                 if (candidate.get("webpage_url") or candidate.get("url"))
                 and not cls._is_music_video(candidate)
-                and matches_query(query, candidate)
                 and not re.search(r"\b(?:live|cover|reaction|shorts)\b|라이브|커버|리액션",
                                   str(candidate.get("title") or ""), re.IGNORECASE)
             ]
+            candidates = [item for item in eligible if matches_query(query, item)]
             if audio_only:
                 candidates = [
                     candidate
@@ -599,6 +601,15 @@ class Music(commands.Cog):
                 ]
             if candidates:
                 return max(candidates, key=lambda item: (query_score(query, item), cls._candidate_score(item)))
+            # YouTube itself interprets phonetic Korean spellings of foreign
+            # names. Do not discard its top music results just because our
+            # local spelling dictionary doesn't contain that artist or song.
+            cross_script = bool(re.search(r'[가-힣]', query))
+            if cross_script:
+                for item in results[:3]:
+                    if (item in eligible and item.get('id') and cls._is_audio_only(item)
+                            and re.search(r'[A-Za-z]', str(item.get('title') or ''))):
+                        return {**item, '_search_rank_inferred': True}
         raise MusicLookupError("검색어와 가까운 음원을 찾지 못했습니다. 가수명이나 곡명을 조금 더 적거나 유튜브 링크를 입력해 주세요.")
 
     @classmethod
@@ -606,9 +617,14 @@ class Music(commands.Cog):
         if track.needs_music_search:
             candidate = cls._find_music_candidate(track.webpage_url)
             track.webpage_url = candidate.get("webpage_url") or candidate["url"]
+            if candidate.get('_search_rank_inferred'):
+                track.selected_video_id = candidate['id']
             track.needs_music_search = False
         info = cls._extract(track.webpage_url)
-        if track.requested_query and not matches_query(track.requested_query, info):
+        if track.selected_video_id:
+            if str(info.get('id') or '') != track.selected_video_id:
+                raise MusicLookupError('선택한 영상과 재생 영상이 달라 재생을 취소했습니다.')
+        elif track.requested_query and not matches_query(track.requested_query, info):
             raise MusicLookupError("선택된 음원이 검색어와 일치하지 않아 재생을 취소했습니다.")
         return info
 
@@ -634,6 +650,7 @@ class Music(commands.Cog):
             stream_url_obtained_at=time.monotonic() if stream_url else 0.0,
             requested_query=None if direct_url else query,
             http_headers=info.get("http_headers") or {},
+            selected_video_id=str(info['id']) if info.get('_search_rank_inferred') else None,
         )
 
     @staticmethod
